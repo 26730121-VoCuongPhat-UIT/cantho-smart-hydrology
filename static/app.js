@@ -74,6 +74,18 @@
       drops: [],
       rafId: null,
     },
+    realtime: {
+      sig: null,
+      es: null,
+      bc: null,
+      connected: false,
+      lastSyncTs: 0,
+      failCount: 0,
+      fallbackTimer: null,
+      sseRetryTimer: null,
+      hideTimer: null,
+      handlingUpdate: false,
+    },
   };
 
   /* --------------------------------------------------------------------------
@@ -982,7 +994,7 @@
     }
   }
 
-  async function evaluateLiveFloodTruth(weatherPayload) {
+  async function evaluateLiveFloodTruth(weatherPayload, opts = {}) {
     const cur = weatherPayload.current || {};
     const astro = weatherPayload.astronomy_and_tide || {};
     const rec = (weatherPayload.auto_flood_mode || {}).recommended_inputs || {};
@@ -1017,7 +1029,19 @@
         state.activeSimData = simJson;
         applyLiveInputsToSliders(tideM, rainMm, rain3h, delta, Boolean(astro.is_spring_tide_window));
         applyActiveSimulationToUI(simJson);
-        if (state.mode === "flood") runFloodRoute();
+        if (state.mode === "flood") {
+          const prevBanner = $("#route-banner")?.textContent || "";
+          const prevSafe = $("#route-safe-dist")?.textContent || "";
+          await runFloodRoute();
+          if (
+            opts.fromRealtime &&
+            prevSafe &&
+            !prevSafe.startsWith("--") &&
+            (($("#route-banner")?.textContent || "") !== prevBanner || ($("#route-safe-dist")?.textContent || "") !== prevSafe)
+          ) {
+            showToast("Vừa có cập nhật điểm ngập mới — đã tự động cập nhật bản đồ và lộ trình.");
+          }
+        }
       }
     } catch (err) {
       console.warn("Live flood check error:", err);
@@ -2185,6 +2209,26 @@
 
     const listEl = $("#incident-list");
     if (listEl) {
+      const commentDrafts = {};
+      let focusedRepId = null;
+      const activeCommentEl = document.activeElement;
+      if (activeCommentEl && activeCommentEl.classList?.contains("comment-reply-input")) {
+        focusedRepId = activeCommentEl.dataset?.repId || null;
+      }
+      $$(".comment-reply-input", listEl).forEach((inp) => {
+        if (inp.value) commentDrafts[inp.dataset.repId] = inp.value;
+      });
+      const restoreCommentDrafts = () => {
+        Object.entries(commentDrafts).forEach(([rid, val]) => {
+          const inp = $(`.comment-reply-input[data-rep-id="${CSS.escape(rid)}"]`, listEl);
+          if (inp) inp.value = val;
+        });
+        if (focusedRepId) {
+          const focusedInp = $(`.comment-reply-input[data-rep-id="${CSS.escape(focusedRepId)}"]`, listEl);
+          if (focusedInp) focusedInp.focus({ preventScroll: true });
+        }
+      };
+
       if (!filteredFeed.length) {
         if (feedAll.length > 0) {
           listEl.innerHTML = `
@@ -2327,6 +2371,7 @@
             }, 90);
           });
         });
+        restoreCommentDrafts();
       }
     }
 
@@ -2391,6 +2436,7 @@
       const data = await res.json();
       state.latestIncidentsData = data;
       renderIncidents(data);
+      broadcastRealtimeUpdate(`vote:${action}`);
       showToast(action === "clear" ? "Đã ghi nhận xác nhận nước đã rút." : "Đã +1 xác nhận điểm ngập.");
       if (state.weatherData && !state.isSimulationOverride) {
         await evaluateLiveFloodTruth(state.weatherData);
@@ -2434,6 +2480,7 @@
       const data = await res.json();
       state.latestIncidentsData = data;
       renderIncidents(data);
+      broadcastRealtimeUpdate("comment");
       showToast("Đã gửi bình luận.");
     } catch (err) {
       showToast(`Lỗi bình luận: ${err.message}`);
@@ -2487,6 +2534,7 @@
       const data = await res.json();
       state.latestIncidentsData = data;
       renderIncidents(data);
+      broadcastRealtimeUpdate("report");
       if ($("#incident-note")) $("#incident-note").value = "";
       state.incidentPhotoData = "";
       $("#composer-photo-preview-wrap")?.classList.add("hidden");
@@ -3525,6 +3573,236 @@
   }
 
   /* --------------------------------------------------------------------------
+     Sub-Second Real-Time Sync (SSE Push + Delta Polling + BroadcastChannel)
+     -------------------------------------------------------------------------- */
+  function updateRealtimePill(isSseLive) {
+    const pill = $("#live-source-pill");
+    if (!pill) return;
+    pill.classList.toggle("sse-live", Boolean(isSseLive));
+    pill.title = isSseLive
+      ? "Kết nối thời gian thực (SSE đẩy tức thời)"
+      : "Đang đồng bộ dữ liệu thời gian thực";
+  }
+
+  function broadcastRealtimeUpdate(reason) {
+    if (!state.realtime.bc) return;
+    try {
+      state.realtime.bc.postMessage({
+        reason: reason || "local_mutation",
+        ts: Date.now(),
+      });
+    } catch {
+      /* ignore BroadcastChannel closed */
+    }
+  }
+
+  function applyRealtimePulseSnapshot(pulse) {
+    if (!pulse || typeof pulse !== "object") return;
+    state.realtime.lastSyncTs = Date.now();
+    const tideM = Number(pulse.tide_m);
+    if (Number.isFinite(tideM) && state.weatherData?.astronomy_and_tide) {
+      const prevTide = Number(state.weatherData.astronomy_and_tide.current_tide_m ?? tideM);
+      if (Math.abs(tideM - prevTide) >= 0.01) {
+        state.weatherData.astronomy_and_tide.current_tide_m = tideM;
+        state.weatherData.astronomy_and_tide.current_tide_delta_m_h = Number(pulse.tide_delta_m_h ?? 0);
+        if ($("#tile-tide-val")) $("#tile-tide-val").textContent = `${tideM.toFixed(2)} m`;
+        if (state.r3f) state.r3f.targetTideM = tideM;
+      }
+    }
+    const rainMm = Number(pulse.rain_mm_h);
+    if (Number.isFinite(rainMm) && state.weatherData?.current) {
+      state.weatherData.current.precip_mm = rainMm;
+    }
+  }
+
+  async function handleRealtimeFloodUpdate(payload = {}, opts = {}) {
+    const nextSig = payload?.signature || null;
+    if (nextSig && nextSig === state.realtime.sig && !opts.force) {
+      return;
+    }
+    if (nextSig) {
+      state.realtime.sig = nextSig;
+    }
+    if (state.realtime.handlingUpdate) return;
+    state.realtime.handlingUpdate = true;
+    try {
+      const tasks = [loadCameras()];
+      if (!state.incidentDemoMode) {
+        tasks.push(loadIncidents());
+      }
+      await Promise.all(tasks);
+
+      if (state.weatherData && !state.isSimulationOverride) {
+        await evaluateLiveFloodTruth(state.weatherData, { fromRealtime: !opts.silentToast });
+      } else if (!state.isSimulationOverride && state.mode === "flood") {
+        await runFloodRoute();
+      }
+    } catch (err) {
+      console.warn("Realtime update sync error:", err);
+    } finally {
+      state.realtime.handlingUpdate = false;
+    }
+  }
+
+  async function syncRealtimeDelta(opts = {}) {
+    try {
+      const qs = new URLSearchParams({ district: state.selectedDistrictId || "ninh_kieu" });
+      if (state.realtime.sig && !opts.force) {
+        qs.set("since", state.realtime.sig);
+      }
+      const res = await fetch(`/api/realtime/state?${qs}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      applyRealtimePulseSnapshot(data);
+      if (!data.changed) return;
+
+      state.realtime.sig = data.signature || state.realtime.sig;
+      if (data.incidents && !state.incidentDemoMode) {
+        state.latestIncidentsData = data.incidents;
+        renderIncidents(data.incidents);
+      }
+      await loadCameras();
+      if (state.weatherData && !state.isSimulationOverride) {
+        await evaluateLiveFloodTruth(state.weatherData, { fromRealtime: !opts.silentToast });
+      }
+    } catch (err) {
+      console.warn("Realtime delta sync warning:", err);
+    }
+  }
+
+  function stopRealtimeDeltaFallback() {
+    if (state.realtime.fallbackTimer) {
+      clearInterval(state.realtime.fallbackTimer);
+      state.realtime.fallbackTimer = null;
+    }
+    if (state.realtime.sseRetryTimer) {
+      clearTimeout(state.realtime.sseRetryTimer);
+      state.realtime.sseRetryTimer = null;
+    }
+  }
+
+  function startRealtimeDeltaFallback() {
+    if (!state.realtime.fallbackTimer) {
+      state.realtime.fallbackTimer = setInterval(() => {
+        if (!document.hidden) syncRealtimeDelta();
+      }, 5_000);
+    }
+    if (!state.realtime.sseRetryTimer) {
+      state.realtime.sseRetryTimer = setTimeout(() => {
+        state.realtime.sseRetryTimer = null;
+        state.realtime.failCount = 0;
+        if (!document.hidden) connectRealtimeStream();
+      }, 30_000);
+    }
+  }
+
+  function closeRealtimeStream() {
+    if (state.realtime.es) {
+      try {
+        state.realtime.es.close();
+      } catch {
+        /* ignore */
+      }
+      state.realtime.es = null;
+    }
+    state.realtime.connected = false;
+    updateRealtimePill(false);
+  }
+
+  function connectRealtimeStream() {
+    if (typeof EventSource === "undefined") {
+      startRealtimeDeltaFallback();
+      return;
+    }
+    if (document.hidden) return;
+    closeRealtimeStream();
+
+    const qs = new URLSearchParams({ district: state.selectedDistrictId || "ninh_kieu" });
+    const es = new EventSource(`/api/realtime/stream?${qs}`);
+    state.realtime.es = es;
+
+    es.onopen = () => {
+      state.realtime.connected = true;
+      state.realtime.failCount = 0;
+      stopRealtimeDeltaFallback();
+      updateRealtimePill(true);
+    };
+
+    es.addEventListener("pulse", (ev) => {
+      try {
+        const pulse = JSON.parse(ev.data || "{}");
+        applyRealtimePulseSnapshot(pulse);
+        if (pulse.signature) {
+          if (state.realtime.sig === null) {
+            state.realtime.sig = pulse.signature;
+          } else if (pulse.signature !== state.realtime.sig) {
+            handleRealtimeFloodUpdate(pulse, { silentToast: true });
+          }
+        }
+      } catch {
+        /* ignore malformed pulse */
+      }
+    });
+
+    es.addEventListener("flood_update", (ev) => {
+      try {
+        const payload = JSON.parse(ev.data || "{}");
+        handleRealtimeFloodUpdate(payload);
+      } catch {
+        handleRealtimeFloodUpdate({}, { force: true });
+      }
+    });
+
+    es.onerror = () => {
+      state.realtime.connected = false;
+      state.realtime.failCount += 1;
+      updateRealtimePill(false);
+      if (state.realtime.failCount >= 3) {
+        closeRealtimeStream();
+        startRealtimeDeltaFallback();
+      }
+    };
+  }
+
+  function initRealtimeSync() {
+    if (typeof BroadcastChannel !== "undefined" && !state.realtime.bc) {
+      try {
+        state.realtime.bc = new BroadcastChannel("cantho_flood_realtime");
+        state.realtime.bc.onmessage = (ev) => {
+          handleRealtimeFloodUpdate(ev?.data || {}, { force: true });
+        };
+      } catch {
+        state.realtime.bc = null;
+      }
+    }
+
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) {
+        if (state.realtime.hideTimer) clearTimeout(state.realtime.hideTimer);
+        state.realtime.hideTimer = setTimeout(() => {
+          if (document.hidden) closeRealtimeStream();
+        }, 15_000);
+      } else {
+        if (state.realtime.hideTimer) {
+          clearTimeout(state.realtime.hideTimer);
+          state.realtime.hideTimer = null;
+        }
+        syncRealtimeDelta({ silentToast: true });
+        if (!state.realtime.es) connectRealtimeStream();
+      }
+    });
+
+    window.addEventListener("online", () => {
+      syncRealtimeDelta({ silentToast: true });
+      connectRealtimeStream();
+      loadLiveWeather(state.selectedDistrictId, false);
+    });
+
+    window.addEventListener("beforeunload", closeRealtimeStream);
+    connectRealtimeStream();
+  }
+
+  /* --------------------------------------------------------------------------
      Bootstrap
      -------------------------------------------------------------------------- */
   async function bootstrap() {
@@ -3551,7 +3829,10 @@
       showToast(`Lỗi khởi tạo: ${err.message}`);
     }
 
-    setInterval(() => loadLiveWeather(state.selectedDistrictId, false), 180_000);
+    initRealtimeSync();
+    setInterval(() => {
+      if (!document.hidden) loadLiveWeather(state.selectedDistrictId, false);
+    }, 45_000);
   }
 
   document.addEventListener("DOMContentLoaded", bootstrap);

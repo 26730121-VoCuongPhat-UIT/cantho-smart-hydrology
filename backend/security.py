@@ -187,7 +187,10 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
         if path.startswith("/api/") and path != "/api/health":
             ip = get_client_ip(request)
-            if method == "POST" and path.startswith("/api/incidents"):
+            if path.startswith("/api/realtime/"):
+                bucket = "realtime"
+                limit = int(os.environ.get("RATE_LIMIT_REALTIME_RPM", "240"))
+            elif method == "POST" and path.startswith("/api/incidents"):
                 bucket = "write"
                 limit = int(os.environ.get("RATE_LIMIT_WRITE_RPM", "12"))
             elif method == "POST":
@@ -227,7 +230,7 @@ class TieredCacheMiddleware(BaseHTTPMiddleware):
             if refresh_raw in ("1", "true", "yes"):
                 response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
             else:
-                response.headers["Cache-Control"] = "public, s-maxage=120, stale-while-revalidate=300"
+                response.headers["Cache-Control"] = "public, s-maxage=25, stale-while-revalidate=60"
         elif path == "/api/init":
             response.headers["Cache-Control"] = "public, s-maxage=300, stale-while-revalidate=600"
         elif path in ("/manifest.json", "/sw.js", "/api/health"):

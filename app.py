@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import math
 import os
@@ -16,11 +17,12 @@ from starlette.applications import Starlette
 from starlette.middleware import Middleware
 from starlette.middleware.cors import CORSMiddleware
 from starlette.requests import Request
-from starlette.responses import FileResponse, JSONResponse
+from starlette.responses import FileResponse, JSONResponse, StreamingResponse
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
 from backend.camera_engine import get_cameras_payload
+from backend.realtime_hub import format_sse, realtime_bus
 from backend.cantho_geo import (
     CANTHO_DISTRICTS,
     CANTHO_NODES,
@@ -150,6 +152,11 @@ async def health_check(request: Request) -> JSONResponse:
             "osm_nodes": len(osm_graph.nodes) if osm_graph is not None else 0,
             "osm_edges": len(osm_graph.edges) if osm_graph is not None else 0,
             "poi_count": poi_index.count,
+            "realtime": {
+                "transport": "sse+delta",
+                "weather_cache_sec": 30,
+                "stream_window_sec": 20,
+            },
         }
     )
 
@@ -159,7 +166,7 @@ async def get_live_weather(request: Request) -> JSONResponse:
     global _LAST_FORCED_REFRESH_TS
     district_id = sanitize_text(request.query_params.get("district", "ninh_kieu"), 32)
     wants_refresh = request.query_params.get("refresh", "false").lower() in ("1", "true", "yes")
-    cooldown_sec = float(os.environ.get("REFRESH_COOLDOWN_SEC", "60"))
+    cooldown_sec = float(os.environ.get("REFRESH_COOLDOWN_SEC", "15"))
 
     allow_refresh = False
     if wants_refresh:
@@ -464,6 +471,15 @@ async def create_incident(request: Request) -> JSONResponse:
         rain_mm_h=rain,
         tide_level_m=tide,
     )
+    realtime_bus.publish(
+        "flood_update",
+        {
+            "reason": "report",
+            "district": norm_dist,
+            "signature": incident_store.get_state_signature(),
+            "server_ts": time.time(),
+        },
+    )
     return JSONResponse(updated, status_code=201)
 
 
@@ -496,6 +512,7 @@ async def vote_incident(request: Request) -> JSONResponse:
         return JSONResponse({"error": "Độ sâu ngập phải nằm trong khoảng 0–200 cm."}, status_code=400)
 
     rain, tide, _ = _get_live_hydro_context()
+    norm_dist = district if district in DISTRICTS_BY_ID else "ninh_kieu"
     updated = incident_store.add_vote(
         action=action,
         lat=lat,
@@ -503,10 +520,19 @@ async def vote_incident(request: Request) -> JSONResponse:
         reported_depth_cm=depth,
         location_hint=hint or "TP. Cần Thơ",
         reporter_name=reporter or "Người dân Cần Thơ",
-        district=district if district in DISTRICTS_BY_ID else "ninh_kieu",
+        district=norm_dist,
         category=category if category in VALID_CATEGORIES else "flood_deep",
         rain_mm_h=rain,
         tide_level_m=tide,
+    )
+    realtime_bus.publish(
+        "flood_update",
+        {
+            "reason": f"vote:{action}",
+            "district": norm_dist,
+            "signature": incident_store.get_state_signature(),
+            "server_ts": time.time(),
+        },
     )
     return JSONResponse(updated, status_code=201)
 
@@ -533,6 +559,15 @@ async def comment_incident(request: Request) -> JSONResponse:
         content=content,
         rain_mm_h=rain,
         tide_level_m=tide,
+    )
+    realtime_bus.publish(
+        "flood_update",
+        {
+            "reason": "comment",
+            "report_id": report_id,
+            "signature": incident_store.get_state_signature(),
+            "server_ts": time.time(),
+        },
     )
     return JSONResponse(updated, status_code=201)
 
@@ -586,6 +621,108 @@ async def geocode_cantho(request: Request) -> JSONResponse:
     return JSONResponse({"results": results})
 
 
+def _build_realtime_pulse(district_id: str) -> Dict:
+    rain, tide, hub = _get_live_hydro_context()
+    if district_id and district_id != "ninh_kieu":
+        hub = fetch_cantho_realtime_hub(district_id=district_id, force_refresh=False)
+        rain = float(hub.get("current", {}).get("precip_mm", rain))
+    astro = hub.get("astronomy_and_tide", {})
+    return {
+        "tide_m": round(float(astro.get("current_tide_m", tide)), 2),
+        "tide_delta_m_h": round(float(astro.get("current_tide_delta_m_h", 0.0)), 3),
+        "rain_mm_h": round(float(rain), 1),
+        "weather_fetched_at": hub.get("fetched_at"),
+        "server_ts": time.time(),
+    }
+
+
+async def get_realtime_state(request: Request) -> JSONResponse:
+    """Return lightweight O(1) signature check or delta incident/hydro payload."""
+    district_id = sanitize_text(request.query_params.get("district", "ninh_kieu"), 32) or "ninh_kieu"
+    since_sig = sanitize_text(request.query_params.get("since", ""), 96)
+    sig = incident_store.get_state_signature()
+    pulse = _build_realtime_pulse(district_id)
+
+    if since_sig and since_sig == sig:
+        return JSONResponse({"changed": False, "signature": sig, **pulse})
+
+    incidents = incident_store.get_clustered_incidents(
+        rain_mm_h=pulse["rain_mm_h"],
+        tide_level_m=pulse["tide_m"],
+    )
+    return JSONResponse({"changed": True, "signature": sig, "incidents": incidents, **pulse})
+
+
+async def stream_realtime(request: Request) -> StreamingResponse:
+    """Push instant community flood updates and live hydro pulses via Server-Sent Events."""
+    district_id = sanitize_text(request.query_params.get("district", "ninh_kieu"), 32) or "ninh_kieu"
+    try:
+        max_seconds = float(request.query_params.get("max_seconds", "20.0"))
+    except ValueError:
+        max_seconds = 20.0
+    max_seconds = max(0.2, min(22.0, max_seconds))
+
+    async def _event_stream():
+        q = realtime_bus.subscribe()
+        started = time.monotonic()
+        last_sig = incident_store.get_state_signature()
+        last_pulse_ts = started
+        try:
+            init_pulse = {**_build_realtime_pulse(district_id), "signature": last_sig}
+            yield format_sse("pulse", init_pulse, retry_ms=2000)
+
+            while (time.monotonic() - started) < max_seconds:
+                if await request.is_disconnected():
+                    break
+                remaining = max_seconds - (time.monotonic() - started)
+                if remaining <= 0:
+                    break
+                wait_timeout = min(2.5, remaining)
+                try:
+                    msg = await asyncio.wait_for(q.get(), timeout=wait_timeout)
+                    ev_data = msg.get("data") or {}
+                    new_sig = ev_data.get("signature")
+                    if new_sig:
+                        last_sig = new_sig
+                    yield format_sse(msg.get("event", "flood_update"), ev_data)
+                    continue
+                except asyncio.TimeoutError:
+                    pass
+
+                if await request.is_disconnected():
+                    break
+
+                cur_sig = incident_store.get_state_signature()
+                if cur_sig != last_sig:
+                    last_sig = cur_sig
+                    yield format_sse(
+                        "flood_update",
+                        {
+                            "reason": "db_sync",
+                            "district": district_id,
+                            "signature": cur_sig,
+                            "server_ts": time.time(),
+                        },
+                    )
+
+                now_m = time.monotonic()
+                if (now_m - last_pulse_ts) >= 10.0:
+                    last_pulse_ts = now_m
+                    yield format_sse("pulse", {**_build_realtime_pulse(district_id), "signature": last_sig})
+        finally:
+            realtime_bus.unsubscribe(q)
+
+    return StreamingResponse(
+        _event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )
+
+
 routes = [
     Route("/", endpoint=serve_index, methods=["GET"]),
     Route("/manifest.json", endpoint=serve_manifest, methods=["GET"]),
@@ -601,6 +738,8 @@ routes = [
     Route("/api/incidents/comment", endpoint=comment_incident, methods=["POST"]),
     Route("/api/cameras", endpoint=get_cameras, methods=["GET"]),
     Route("/api/geocode", endpoint=geocode_cantho, methods=["GET"]),
+    Route("/api/realtime/state", endpoint=get_realtime_state, methods=["GET"]),
+    Route("/api/realtime/stream", endpoint=stream_realtime, methods=["GET"]),
 ]
 
 if PUBLIC_ASSETS_DIR.exists():

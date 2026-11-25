@@ -304,6 +304,15 @@ summary:focus-visible {
   background: currentColor;
 }
 
+.live-indicator.sse-live .live-dot {
+  animation: ssePulse 1.8s ease-in-out infinite;
+}
+
+@keyframes ssePulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.42; transform: scale(0.82); }
+}
+
 .masthead-clock strong {
   font-weight: 500;
   color: var(--ink-primary);

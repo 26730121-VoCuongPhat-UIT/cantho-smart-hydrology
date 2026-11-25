@@ -13,6 +13,7 @@ import json
 import math
 import os
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -1242,7 +1243,7 @@ def _fetch_raw_openmeteo_bundle(force_refresh: bool = False, timeout_sec: float 
     if (
         not force_refresh
         and _LIVE_HUB_CACHE["raw_bundle"] is not None
-        and (now_epoch - float(_LIVE_HUB_CACHE["fetched_epoch"])) < 180.0
+        and (now_epoch - float(_LIVE_HUB_CACHE["fetched_epoch"])) < 30.0
     ):
         return _LIVE_HUB_CACHE["raw_bundle"]
 
@@ -1255,6 +1256,7 @@ def _fetch_raw_openmeteo_bundle(force_refresh: bool = False, timeout_sec: float 
         f"https://api.open-meteo.com/v1/forecast"
         f"?latitude={CANTHO_LAT}&longitude={CANTHO_LON}"
         f"&current=temperature_2m,relative_humidity_2m,apparent_temperature,is_day,precipitation,weather_code,cloud_cover,surface_pressure,wind_speed_10m,wind_direction_10m,wind_gusts_10m"
+        f"&minutely_15=precipitation&forecast_minutely_15=4"
         f"&hourly=temperature_2m,apparent_temperature,relative_humidity_2m,precipitation_probability,precipitation,weather_code,surface_pressure,visibility,wind_speed_10m,wind_direction_10m,uv_index"
         f"&daily=weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset,uv_index_max,precipitation_sum,precipitation_probability_max,wind_speed_10m_max"
         f"&forecast_days=7&timezone=Asia%2FHo_Chi_Minh"
@@ -1273,24 +1275,25 @@ def _fetch_raw_openmeteo_bundle(force_refresh: bool = False, timeout_sec: float 
         f"&timezone=Asia%2FHo_Chi_Minh"
     )
 
+    def _get_json(url: str) -> Any:
+        resp = requests.get(url, timeout=timeout_sec)
+        resp.raise_for_status()
+        return resp.json()
+
     try:
-        r_fc = requests.get(forecast_url, timeout=timeout_sec)
-        r_fc.raise_for_status()
-        fc_json = r_fc.json()
-
-        try:
-            r_aqi = requests.get(aqi_url, timeout=timeout_sec)
-            r_aqi.raise_for_status()
-            aqi_json = r_aqi.json()
-        except Exception:
-            aqi_json = _build_fallback_raw_bundle(now_vn)["aqi"]
-
-        try:
-            r_dist = requests.get(batch_districts_url, timeout=timeout_sec)
-            r_dist.raise_for_status()
-            dist_json = r_dist.json()
-        except Exception:
-            dist_json = None
+        with ThreadPoolExecutor(max_workers=3) as pool:
+            f_fc = pool.submit(_get_json, forecast_url)
+            f_aqi = pool.submit(_get_json, aqi_url)
+            f_dist = pool.submit(_get_json, batch_districts_url)
+            fc_json = f_fc.result()
+            try:
+                aqi_json = f_aqi.result()
+            except Exception:
+                aqi_json = _build_fallback_raw_bundle(now_vn)["aqi"]
+            try:
+                dist_json = f_dist.result()
+            except Exception:
+                dist_json = None
 
         bundle = {
             "source": "open-meteo-live",
@@ -1345,6 +1348,17 @@ def fetch_cantho_realtime_hub(
     base_rh = int(curr_fc.get("relative_humidity_2m", 68))
     base_is_day = int(curr_fc.get("is_day", 1 if 6 <= now_vn.hour <= 18 else 0))
     base_precip = float(curr_fc.get("precipitation", 0.0))
+    rain_15m_nowcast = base_precip
+    minutely_15 = fc.get("minutely_15") or {}
+    m15_vals = minutely_15.get("precipitation") or []
+    for raw_v in m15_vals[:2]:
+        try:
+            v = float(raw_v)
+            if math.isfinite(v) and 0.0 <= v <= 75.0:
+                rain_15m_nowcast = max(rain_15m_nowcast, round(v * 4.0, 1))
+        except (TypeError, ValueError):
+            pass
+    base_precip = round(max(base_precip, rain_15m_nowcast), 1)
     base_wcode = int(curr_fc.get("weather_code", 2))
     base_cloud = int(curr_fc.get("cloud_cover", 65))
     base_press = float(curr_fc.get("surface_pressure", 1009.0))
@@ -1629,6 +1643,7 @@ def fetch_cantho_realtime_hub(
         "selected_district_id": selected_district_data["id"],
         "current": {
             **selected_district_data,
+            "rain_15m_nowcast_mm_h": rain_15m_nowcast,
             "temp_max_today_c": daily_7d[0]["temp_max_c"] if daily_7d else round(selected_district_data["temp_c"] + 2.0, 1),
             "temp_min_today_c": daily_7d[0]["temp_min_c"] if daily_7d else round(selected_district_data["temp_c"] - 5.0, 1),
             "is_day": base_is_day,

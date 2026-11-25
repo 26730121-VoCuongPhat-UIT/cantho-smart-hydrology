@@ -853,6 +853,46 @@ class IncidentStore:
 
         return list(self.comments[-600:])
 
+    def get_state_signature(self) -> str:
+        """Return an O(1) monotonic version token covering reports and comments across backends."""
+        if self.storage_backend == "postgres" and psycopg is not None:
+            try:
+                with psycopg.connect(self.database_url, connect_timeout=3) as conn:
+                    with conn.cursor() as cur:
+                        cur.execute(
+                            """
+                            SELECT
+                                (SELECT COALESCE(MAX(seq), 0) FROM flood_reports),
+                                (SELECT COUNT(*) FROM flood_reports),
+                                (SELECT COALESCE(MAX(seq), 0) FROM incident_comments),
+                                (SELECT COUNT(*) FROM incident_comments)
+                            """
+                        )
+                        row = cur.fetchone() or (0, 0, 0, 0)
+                return f"pg:{int(row[0])}:{int(row[1])}:{int(row[2])}:{int(row[3])}"
+            except Exception as exc:
+                logger.warning("Postgres signature read failed (%s)", exc.__class__.__name__)
+
+        if self.storage_backend == "sqlite":
+            try:
+                with contextlib.closing(sqlite3.connect(self.sqlite_path)) as conn:
+                    row = conn.execute(
+                        """
+                        SELECT
+                            (SELECT COALESCE(MAX(seq), 0) FROM flood_reports),
+                            (SELECT COUNT(*) FROM flood_reports),
+                            (SELECT COALESCE(MAX(seq), 0) FROM incident_comments),
+                            (SELECT COUNT(*) FROM incident_comments)
+                        """
+                    ).fetchone() or (0, 0, 0, 0)
+                return f"sq:{int(row[0])}:{int(row[1])}:{int(row[2])}:{int(row[3])}"
+            except Exception as exc:
+                logger.warning("SQLite signature read failed (%s)", exc.__class__.__name__)
+
+        last_rep = self.reports[-1].id if self.reports else "0"
+        last_com = self.comments[-1].id if self.comments else "0"
+        return f"mem:{len(self.reports)}:{last_rep}:{len(self.comments)}:{last_com}"
+
     def get_clustered_incidents(
         self,
         rain_mm_h: float = 0.0,

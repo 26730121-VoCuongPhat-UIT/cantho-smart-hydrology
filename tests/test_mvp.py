@@ -465,7 +465,7 @@ class TestCanThoFloodGuardMVP(unittest.TestCase):
         rate_limiter.reset()
         st_live, h_live, _ = self._call_asgi_full("GET", "/api/weather/live", "district=ninh_kieu")
         self.assertEqual(st_live, 200)
-        self.assertIn("s-maxage=120", h_live.get("cache-control", ""))
+        self.assertIn("s-maxage=25", h_live.get("cache-control", ""))
 
         st_inc, h_inc, _ = self._call_asgi_full("GET", "/api/incidents")
         self.assertEqual(st_inc, 200)
@@ -999,6 +999,110 @@ class TestCanThoFloodGuardMVP(unittest.TestCase):
             self.assertLessEqual(res["osm_snap"]["start_offset_m"], 40.0)
             self.assertLessEqual(res["osm_snap"]["end_offset_m"], 40.0)
             self.assertGreaterEqual(len(res["flood_aware_route"]["coords"]), 6)
+
+    def test_realtime_state_delta_and_signature_invalidation(self) -> None:
+        """Verify O(1) signature invalidation on report/vote/comment and delta state payload."""
+        import json
+        import tempfile
+        import app as app_module
+        from backend.security import rate_limiter
+
+        rate_limiter.reset()
+        orig_store = app_module.incident_store
+        try:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                app_module.incident_store = IncidentStore(backend="sqlite", sqlite_path=Path(tmpdir) / "rt_delta.db")
+
+                st1, h1, b1 = self._call_asgi_full("GET", "/api/realtime/state")
+                self.assertEqual(st1, 200)
+                self.assertIn("no-store", h1.get("cache-control", ""))
+                d1 = json.loads(b1)
+                self.assertTrue(d1["changed"])
+                sig1 = d1["signature"]
+
+                st_same, _, b_same = self._call_asgi_full("GET", "/api/realtime/state", f"since={sig1}")
+                self.assertEqual(st_same, 200)
+                d_same = json.loads(b_same)
+                self.assertFalse(d_same["changed"])
+                self.assertNotIn("incidents", d_same)
+
+                st_post, _, _ = self._call_asgi_full(
+                    "POST",
+                    "/api/incidents",
+                    payload={"lat": 10.0365, "lon": 105.7760, "reported_depth_cm": 28.0, "location_hint": "Mậu Thân"},
+                )
+                self.assertEqual(st_post, 201)
+
+                st2, _, b2 = self._call_asgi_full("GET", "/api/realtime/state", f"since={sig1}")
+                self.assertEqual(st2, 200)
+                d2 = json.loads(b2)
+                self.assertTrue(d2["changed"])
+                self.assertNotEqual(d2["signature"], sig1)
+                self.assertEqual(d2["incidents"]["total_reports"], 1)
+        finally:
+            app_module.incident_store = orig_store
+            rate_limiter.reset()
+
+    def test_realtime_sse_stream_subsecond_push(self) -> None:
+        """Verify SSE endpoint emits initial pulse and sub-second flood_update when bus publishes."""
+        import asyncio
+        import app as app_module
+        from backend.realtime_hub import realtime_bus
+        from backend.security import rate_limiter
+
+        rate_limiter.reset()
+
+        async def _run_stream_test():
+            captured = []
+            req_sent = False
+            done_ev = asyncio.Event()
+
+            async def _receive():
+                nonlocal req_sent
+                if not req_sent:
+                    req_sent = True
+                    return {"type": "http.request", "body": b"", "more_body": False}
+                await done_ev.wait()
+                return {"type": "http.disconnect"}
+
+            async def _send(message):
+                captured.append(message)
+                if message.get("type") == "http.response.body" and not message.get("more_body", False):
+                    done_ev.set()
+
+            async def _trigger_publish():
+                await asyncio.sleep(0.08)
+                realtime_bus.publish("flood_update", {"reason": "unit_test", "signature": "test-sig-2"})
+
+            scope = {
+                "type": "http",
+                "asgi": {"version": "3.0"},
+                "http_version": "1.1",
+                "method": "GET",
+                "scheme": "http",
+                "path": "/api/realtime/stream",
+                "raw_path": b"/api/realtime/stream",
+                "query_string": b"max_seconds=0.45",
+                "headers": [],
+                "client": ("127.0.0.1", 55000),
+                "server": ("127.0.0.1", 8088),
+            }
+            pub_task = asyncio.create_task(_trigger_publish())
+            await app_module.app(scope, _receive, _send)
+            await pub_task
+            return captured
+
+        msgs = asyncio.run(_run_stream_test())
+        start_msg = next(m for m in msgs if m["type"] == "http.response.start")
+        self.assertEqual(start_msg["status"], 200)
+        hdrs = {k.decode("latin1").lower(): v.decode("latin1") for k, v in start_msg["headers"]}
+        self.assertIn("text/event-stream", hdrs.get("content-type", ""))
+        self.assertEqual(hdrs.get("x-accel-buffering"), "no")
+
+        body_text = b"".join(m.get("body", b"") for m in msgs if m["type"] == "http.response.body").decode("utf-8")
+        self.assertIn("event: pulse", body_text)
+        self.assertIn("event: flood_update", body_text)
+        self.assertIn("test-sig-2", body_text)
 
 
 if __name__ == "__main__":

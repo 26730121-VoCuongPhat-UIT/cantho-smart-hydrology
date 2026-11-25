@@ -7,7 +7,7 @@
     "app.py": {
       "maxDuration": 30,
       "includeFiles": "public/**",
-      "excludeFiles": "{tests/**,scripts/**,static/**,docs/**,node_modules/**,data/gold_spatiotemporal_training.csv,data/nowcast_hgbr.joblib,BAO_CAO_MVP_KLTN.md}"
+      "excludeFiles": "{tests/**,scripts/**,static/**,docs/**,node_modules/**,data/gold_spatiotemporal_training.csv,data/nowcast_hgbr.joblib}"
     }
   },
   "headers": [
