@@ -73,7 +73,6 @@
       floodTier: "safe",
       drops: [],
       rafId: null,
-      resize: null,
     },
     realtime: {
       sig: null,
@@ -246,14 +245,11 @@
 
     const resize = () => {
       cw = wrap?.clientWidth || 540;
-      ch = wrap?.clientHeight || 290;
-      if (cw < 40) cw = 540;
-      if (ch < 40) ch = 290;
+      ch = wrap?.clientHeight || 340;
       dpr = Math.min(window.devicePixelRatio || 1, 2);
       canvas.width = Math.round(cw * dpr);
       canvas.height = Math.round(ch * dpr);
     };
-    state.r3f.resize = resize;
     window.addEventListener("resize", resize);
     if (wrap && typeof ResizeObserver !== "undefined") {
       new ResizeObserver(resize).observe(wrap);
@@ -274,8 +270,7 @@
     const clampElev = (m) => Math.max(elevMin, Math.min(elevMax, m));
 
     const drawFrame = (timeMs) => {
-      const drawer = $("#hydro-details-drawer");
-      if (state.mode !== "weather" || document.hidden || (drawer && !drawer.open)) {
+      if (state.mode !== "weather" || document.hidden) {
         setTimeout(() => { state.r3f.rafId = requestAnimationFrame(drawFrame); }, 240);
         return;
       }
@@ -289,18 +284,17 @@
       const t = timeMs * 0.001;
       const isNocturne = state.mood === "nocturne";
 
-      const inkPrimary = isNocturne ? "#F8FAFC" : "#0F172A";
-      const inkSec = isNocturne ? "rgba(203, 213, 225, 0.86)" : "rgba(71, 85, 105, 0.86)";
-      const inkMuted = isNocturne ? "rgba(148, 163, 184, 0.82)" : "rgba(100, 116, 139, 0.84)";
-      const hairline = isNocturne ? "rgba(148, 163, 184, 0.16)" : "rgba(15, 23, 42, 0.10)";
-      const hatchStroke = isNocturne ? "rgba(148, 163, 184, 0.16)" : "rgba(15, 23, 42, 0.10)";
-      const earthFill = isNocturne ? "rgba(30, 41, 59, 0.56)" : "rgba(226, 232, 240, 0.62)";
-      const paperSolid = isNocturne ? "#131C2E" : "#FFFFFF";
-      const terracotta = isNocturne ? "#38BDF8" : "#0284C7";
-      const sunCol = isNocturne ? "#FBBF24" : "#F59E0B";
-      const riverJade = isNocturne ? "#38BDF8" : "#0284C7";
-      const amberCol = isNocturne ? "#FBBF24" : "#D97706";
-      const dangerCol = isNocturne ? "#F87171" : "#DC2626";
+      const inkPrimary = isNocturne ? "#f2efe9" : "#16231e";
+      const inkSec = isNocturne ? "rgba(242, 239, 233, 0.72)" : "rgba(22, 35, 30, 0.72)";
+      const inkMuted = isNocturne ? "rgba(242, 239, 233, 0.52)" : "rgba(22, 35, 30, 0.52)";
+      const hairline = isNocturne ? "rgba(242, 239, 233, 0.13)" : "rgba(22, 35, 30, 0.13)";
+      const hatchStroke = isNocturne ? "rgba(242, 239, 233, 0.14)" : "rgba(22, 35, 30, 0.14)";
+      const earthFill = isNocturne ? "rgba(242, 239, 233, 0.055)" : "rgba(22, 35, 30, 0.048)";
+      const paperSolid = isNocturne ? "#1c2823" : "#faf8f2";
+      const terracotta = isNocturne ? "#d97d54" : "#b85d3b";
+      const riverJade = isNocturne ? "#3fa384" : "#1e5b49";
+      const amberCol = isNocturne ? "#e5a94c" : "#9e5008";
+      const dangerCol = isNocturne ? "#eb7367" : "#a62626";
 
       const padL = 8;
       const padR = 46;
@@ -380,20 +374,20 @@
       ctx.save();
       if (r3.isDay) {
         const sunGlow = ctx.createRadialGradient(orbX, orbY, 4, orbX, orbY, 34);
-        sunGlow.addColorStop(0, "rgba(245, 158, 11, 0.30)");
-        sunGlow.addColorStop(1, "rgba(245, 158, 11, 0)");
+        sunGlow.addColorStop(0, isNocturne ? "rgba(217, 125, 84, 0.34)" : "rgba(184, 93, 59, 0.24)");
+        sunGlow.addColorStop(1, "rgba(184, 93, 59, 0)");
         ctx.fillStyle = sunGlow;
         ctx.beginPath();
         ctx.arc(orbX, orbY, 34, 0, Math.PI * 2);
         ctx.fill();
 
-        ctx.fillStyle = sunCol;
+        ctx.fillStyle = terracotta;
         ctx.beginPath();
         ctx.arc(orbX, orbY, 13, 0, Math.PI * 2);
         ctx.fill();
 
-        ctx.strokeStyle = sunCol;
-        ctx.lineWidth = 1.2;
+        ctx.strokeStyle = terracotta;
+        ctx.lineWidth = 1;
         for (let k = 0; k < 8; k++) {
           const ang = (k * Math.PI) / 4 + t * 0.06;
           ctx.beginPath();
@@ -403,14 +397,14 @@
         }
       } else {
         const moonGlow = ctx.createRadialGradient(orbX, orbY, 4, orbX, orbY, 34);
-        moonGlow.addColorStop(0, isNocturne ? "rgba(56, 189, 248, 0.24)" : "rgba(2, 132, 199, 0.16)");
-        moonGlow.addColorStop(1, "rgba(56, 189, 248, 0)");
+        moonGlow.addColorStop(0, isNocturne ? "rgba(242, 239, 233, 0.22)" : "rgba(30, 91, 73, 0.14)");
+        moonGlow.addColorStop(1, "rgba(242, 239, 233, 0)");
         ctx.fillStyle = moonGlow;
         ctx.beginPath();
         ctx.arc(orbX, orbY, 34, 0, Math.PI * 2);
         ctx.fill();
 
-        ctx.fillStyle = isNocturne ? "#F8FAFC" : "#E2E8F0";
+        ctx.fillStyle = isNocturne ? "#f2efe9" : "#e5dfc9";
         ctx.strokeStyle = inkSec;
         ctx.lineWidth = 1.2;
         ctx.beginPath();
@@ -420,16 +414,16 @@
 
         // Phase shadow crescent if < 88% illuminated
         if (r3.moonPct < 88) {
-          ctx.fillStyle = isNocturne ? "#0B1120" : "#F3F6FA";
+          ctx.fillStyle = isNocturne ? "#17211d" : "#ebe6da";
           ctx.beginPath();
           ctx.arc(orbX + 5.5, orbY - 1.5, 10.5, 0, Math.PI * 2);
           ctx.fill();
         }
       }
-      ctx.font = '600 11px "Be Vietnam Pro", system-ui, sans-serif';
+      ctx.font = '500 9.5px "IBM Plex Mono", monospace';
       ctx.fillStyle = inkMuted;
       ctx.textAlign = "center";
-      ctx.fillText(r3.isDay ? "Mặt trời" : `Trăng ${r3.lunarDay} ÂL`, orbX, Math.min(datumTopY - 18, orbY + 28));
+      ctx.fillText(r3.isDay ? "QUỸ ĐẠO MẶT TRỜI" : `TRĂNG ${r3.lunarDay} ÂL`, orbX, Math.min(datumTopY - 18, orbY + 28));
       ctx.restore();
 
       // Engraved layered atmospheric cloud contours
@@ -447,12 +441,12 @@
         ctx.closePath();
 
         ctx.fillStyle = isNocturne
-          ? `rgba(148, 163, 184, ${(0.12 * alphaMult).toFixed(3)})`
-          : `rgba(148, 163, 184, ${(0.14 * alphaMult).toFixed(3)})`;
+          ? `rgba(242, 239, 233, ${(0.07 * alphaMult).toFixed(3)})`
+          : `rgba(22, 35, 30, ${(0.05 * alphaMult).toFixed(3)})`;
         ctx.fill();
         ctx.strokeStyle = isNocturne
-          ? `rgba(203, 213, 225, ${(0.34 * alphaMult).toFixed(3)})`
-          : `rgba(100, 116, 139, ${(0.32 * alphaMult).toFixed(3)})`;
+          ? `rgba(242, 239, 233, ${(0.34 * alphaMult).toFixed(3)})`
+          : `rgba(22, 35, 30, ${(0.30 * alphaMult).toFixed(3)})`;
         ctx.lineWidth = 1.1;
         ctx.stroke();
 
@@ -473,8 +467,8 @@
       // Diagonal rain strokes when raining
       if (r3.isRaining) {
         ctx.save();
-        ctx.strokeStyle = isNocturne ? "rgba(56, 189, 248, 0.62)" : "rgba(2, 132, 199, 0.52)";
-        ctx.lineWidth = 1.2;
+        ctx.strokeStyle = isNocturne ? "rgba(125, 211, 252, 0.58)" : "rgba(30, 91, 73, 0.46)";
+        ctx.lineWidth = 1.15;
         r3.drops.forEach((d) => {
           const prog = (t * d.speed + d.phase) % 1;
           const rx = padL + d.xFrac * plotW + prog * 18;
@@ -500,20 +494,20 @@
         ctx.stroke();
 
         if (label) {
-          ctx.font = '600 11px "Be Vietnam Pro", system-ui, sans-serif';
+          ctx.font = '600 9px "IBM Plex Mono", monospace';
           ctx.fillStyle = color;
           ctx.textAlign = "right";
-          ctx.fillText(label, staffX - 6, labelBelow ? yy + 12 : yy - 4);
+          ctx.fillText(label, staffX - 6, labelBelow ? yy + 10 : yy - 3);
         }
         ctx.restore();
       };
 
       const alarmSpanPx = Math.abs(elevToY(2.0) - elevToY(1.8));
-      drawDatumRule(2.0, "BĐ III 2.00m", isNocturne ? "rgba(248, 113, 113, 0.72)" : "rgba(220, 38, 38, 0.65)", true, false);
+      drawDatumRule(2.0, "BĐ III 2.00m", isNocturne ? "rgba(235, 115, 103, 0.62)" : "rgba(166, 38, 38, 0.55)", true, false);
       if (alarmSpanPx >= 34) {
-        drawDatumRule(1.9, "", isNocturne ? "rgba(251, 191, 36, 0.35)" : "rgba(217, 119, 6, 0.35)", true, false);
+        drawDatumRule(1.9, "", isNocturne ? "rgba(229, 169, 76, 0.35)" : "rgba(158, 80, 8, 0.32)", true, false);
       }
-      drawDatumRule(1.8, "BĐ I 1.80m", isNocturne ? "rgba(251, 191, 36, 0.72)" : "rgba(217, 119, 6, 0.65)", true, alarmSpanPx < 28);
+      drawDatumRule(1.8, "BĐ I 1.80m", isNocturne ? "rgba(229, 169, 76, 0.62)" : "rgba(158, 80, 8, 0.55)", true, alarmSpanPx < 28);
 
       // 4. Urban Bench & Riverbank Quay Embankment Section (Left Half)
       const bedY = elevToY(0.82);
@@ -589,30 +583,30 @@
       ctx.closePath();
       ctx.fill();
 
-      ctx.font = '600 11px "Be Vietnam Pro", system-ui, sans-serif';
+      ctx.font = '600 9.5px "IBM Plex Mono", monospace';
       ctx.fillStyle = inkPrimary;
       ctx.textAlign = "left";
       const labelY = Math.min(datumBotY - 12, streetY + 19);
-      const distLabel = r3.districtName || "Cần Thơ";
+      const distLabel = (r3.districtName || "CẦN THƠ").toUpperCase();
       if (terraceEndX - padL < 165) {
         ctx.fillText(distLabel, padL + 8, labelY);
-        ctx.fillText(`Cốt +${r3.curElevM.toFixed(2)}m`, padL + 8, Math.min(datumBotY - 3, labelY + 14));
+        ctx.fillText(`CỐT +${r3.curElevM.toFixed(2)}m`, padL + 8, Math.min(datumBotY - 3, labelY + 13));
       } else {
-        ctx.fillText(`Cốt nền ${distLabel} +${r3.curElevM.toFixed(2)}m`, padL + 10, labelY);
+        ctx.fillText(`CỐT NỀN ${distLabel} +${r3.curElevM.toFixed(2)}m`, padL + 10, labelY);
       }
       ctx.restore();
 
-      // Only show flood film over street when actual flood depth >= 8cm or tide >= BĐ I (1.80m)
-      const hasFlooding = (r3.maxDepthCm || 0) >= 8 || r3.curTideM >= 1.80;
-      const simulatedFloodDepthM = hasFlooding
+      // Only draw road flood water film when real flood depth >= 8cm or tide reaches Alarm I (>= 1.80m)
+      const isActualStreetFlood = (r3.maxDepthCm || 0) >= 8 || r3.curTideM >= 1.8;
+      const simulatedFloodDepthM = isActualStreetFlood
         ? Math.max((r3.maxDepthCm || 0) / 100, Math.max(0, r3.curTideM - r3.curElevM))
         : 0;
       if (simulatedFloodDepthM >= 0.08) {
         const floodPx = Math.min(26, Math.max(4, simulatedFloodDepthM * 36));
         ctx.save();
         ctx.fillStyle = simulatedFloodDepthM >= 0.18
-          ? (isNocturne ? "rgba(248, 113, 113, 0.36)" : "rgba(220, 38, 38, 0.25)")
-          : (isNocturne ? "rgba(251, 191, 36, 0.34)" : "rgba(217, 119, 6, 0.24)");
+          ? (isNocturne ? "rgba(235, 115, 103, 0.36)" : "rgba(166, 38, 38, 0.25)")
+          : (isNocturne ? "rgba(229, 169, 76, 0.34)" : "rgba(158, 80, 8, 0.24)");
         ctx.fillRect(padL, streetY - floodPx, terraceEndX - padL, floodPx);
         ctx.strokeStyle = simulatedFloodDepthM >= 0.18 ? dangerCol : amberCol;
         ctx.lineWidth = 1.4;
@@ -621,24 +615,24 @@
         ctx.lineTo(terraceEndX, streetY - floodPx);
         ctx.stroke();
 
-        ctx.font = '600 11px "Be Vietnam Pro", system-ui, sans-serif';
+        ctx.font = '600 10.5px "IBM Plex Mono", monospace';
         ctx.fillStyle = simulatedFloodDepthM >= 0.18 ? dangerCol : amberCol;
         ctx.textAlign = "left";
-        ctx.fillText(`Ngập +${Math.round(simulatedFloodDepthM * 100)} cm`, bX + 42, streetY - floodPx - 4);
+        ctx.fillText(`NGẬP +${Math.round(simulatedFloodDepthM * 100)} cm`, bX + 42, streetY - floodPx - 4);
         ctx.restore();
       }
 
       // 5. Hau River Channel Wave & Dynamic Tide Readout (Right Half)
       let riverStroke = riverJade;
-      let riverTopRGBA = isNocturne ? "rgba(56, 189, 248, 0.34)" : "rgba(2, 132, 199, 0.24)";
-      let riverBotRGBA = isNocturne ? "rgba(56, 189, 248, 0.06)" : "rgba(2, 132, 199, 0.04)";
+      let riverTopRGBA = isNocturne ? "rgba(63, 163, 132, 0.34)" : "rgba(30, 91, 73, 0.24)";
+      let riverBotRGBA = isNocturne ? "rgba(63, 163, 132, 0.06)" : "rgba(30, 91, 73, 0.04)";
       if (r3.floodTier === "warn" || r3.curTideM >= 1.8) {
         riverStroke = amberCol;
-        riverTopRGBA = isNocturne ? "rgba(251, 191, 36, 0.34)" : "rgba(217, 119, 6, 0.24)";
+        riverTopRGBA = isNocturne ? "rgba(229, 169, 76, 0.34)" : "rgba(158, 80, 8, 0.24)";
       }
       if (r3.floodTier === "danger" || r3.curTideM >= 2.0) {
         riverStroke = dangerCol;
-        riverTopRGBA = isNocturne ? "rgba(248, 113, 113, 0.38)" : "rgba(220, 38, 38, 0.28)";
+        riverTopRGBA = isNocturne ? "rgba(235, 115, 103, 0.38)" : "rgba(166, 38, 38, 0.28)";
       }
 
       // Compute exact shoreline x-intercept on bank slope (between terraceEndX..slopeFootX)
@@ -693,24 +687,24 @@
       ctx.globalAlpha = 1;
 
       // Crisp River Level Tag positioned neatly above water wave
-      const tideTrend = r3.tideDelta >= 0.02 ? "Lên" : r3.tideDelta <= -0.02 ? "Ròng" : "Đứng";
+      const tideTrend = r3.tideDelta >= 0.02 ? "LÊN" : r3.tideDelta <= -0.02 ? "RÒNG" : "ĐỨNG";
       const isNarrowPlot = cw < 420;
       const riverBadgeTxt = isNarrowPlot
-        ? `Triều ${r3.curTideM.toFixed(2)}m · ${tideTrend}`
-        : `Sông Hậu ${r3.curTideM.toFixed(2)}m · ${tideTrend}`;
-      const badgeW = isNarrowPlot ? Math.min(138, Math.max(106, waveSpan - 10)) : 164;
+        ? `TRIỀU ${r3.curTideM.toFixed(2)}m · ${tideTrend}`
+        : `SÔNG HẬU ${r3.curTideM.toFixed(2)}m · ${tideTrend}`;
+      const badgeW = isNarrowPlot ? Math.min(126, Math.max(96, waveSpan - 10)) : 148;
       const badgeX = Math.max(shoreX + 6, Math.min(staffX - badgeW - 6, shoreX + waveSpan * 0.45 - badgeW / 2));
-      const badgeY = Math.max(datumTopY - 22, waterY - 24);
+      const badgeY = Math.max(datumTopY - 22, waterY - 22);
       ctx.fillStyle = paperSolid;
       ctx.strokeStyle = riverStroke;
-      ctx.lineWidth = 1.2;
-      ctx.fillRect(badgeX, badgeY, badgeW, 20);
-      ctx.strokeRect(badgeX, badgeY, badgeW, 20);
+      ctx.lineWidth = 1;
+      ctx.fillRect(badgeX, badgeY, badgeW, 17);
+      ctx.strokeRect(badgeX, badgeY, badgeW, 17);
 
-      ctx.font = `600 ${isNarrowPlot ? 10.5 : 11}px "Be Vietnam Pro", system-ui, sans-serif`;
+      ctx.font = `600 ${isNarrowPlot ? 8.5 : 9.5}px "IBM Plex Mono", monospace`;
       ctx.fillStyle = riverStroke;
       ctx.textAlign = "center";
-      ctx.fillText(riverBadgeTxt, badgeX + badgeW / 2, badgeY + 13.5);
+      ctx.fillText(riverBadgeTxt, badgeX + badgeW / 2, badgeY + 11.5);
       ctx.restore();
 
       // 6. Vertical Graduated Metric Staff Gauge (Right Edge)
@@ -722,7 +716,7 @@
       ctx.lineTo(staffX, datumBotY);
       ctx.stroke();
 
-      ctx.font = '500 11px "Be Vietnam Pro", system-ui, sans-serif';
+      ctx.font = '500 9.5px "IBM Plex Mono", monospace';
       ctx.textAlign = "left";
       for (let tick = 0.6; tick <= 2.25; tick += 0.2) {
         const ty = Math.round(elevToY(tick)) + 0.5;
@@ -735,7 +729,7 @@
         ctx.stroke();
         if (isMajor) {
           ctx.fillStyle = inkMuted;
-          ctx.fillText(`${tick.toFixed(1)}m`, staffX + 8, ty + 3.5);
+          ctx.fillText(`${tick.toFixed(1)}m`, staffX + 8, ty + 3);
         }
       }
       ctx.restore();
@@ -755,11 +749,11 @@
         ctx.setLineDash([]);
 
         ctx.fillStyle = terracotta;
-        ctx.fillRect(staffX + 2, hy - 9, 44, 18);
-        ctx.font = '600 10.5px "Be Vietnam Pro", system-ui, sans-serif';
-        ctx.fillStyle = isNocturne ? "#0B1120" : "#FFFFFF";
+        ctx.fillRect(staffX + 2, hy - 8, 42, 16);
+        ctx.font = '600 9px "IBM Plex Mono", monospace';
+        ctx.fillStyle = "#faf8f2";
         ctx.textAlign = "center";
-        ctx.fillText(`+${hElev.toFixed(2)}`, staffX + 24, hy + 3.5);
+        ctx.fillText(`+${hElev.toFixed(2)}`, staffX + 23, hy + 3);
         ctx.restore();
       }
 
@@ -806,14 +800,16 @@
 
     const readout = $("#cross-section-readout");
     if (readout) {
-      const diff = Number(r.targetElevM) - Number(r.targetTideM);
-      const isFlooding = (r.maxDepthCm || 0) >= 8 || Number(r.targetTideM) >= 1.80;
+      const elev = Number(r.targetElevM);
+      const tide = Number(r.targetTideM);
+      const diff = elev - tide;
+      const hasFlood = Number(r.maxDepthCm || 0) >= 8 || tide >= 1.8;
       const clearance = diff >= 0
         ? `Cao hơn sông +${diff.toFixed(2)}m`
-        : (isFlooding
+        : (hasFlood
             ? `Nước tràn mặt đường +${Math.abs(diff).toFixed(2)}m`
             : `Cao hơn cốt đất thấp +${Math.abs(diff).toFixed(2)}m (đã có đê bao)`);
-      readout.textContent = `Cốt +${Number(r.targetElevM).toFixed(2)}m · Triều ${Number(r.targetTideM).toFixed(2)}m · ${clearance}`;
+      readout.textContent = `Cốt nền +${elev.toFixed(2)}m · Triều ${tide.toFixed(2)}m · ${clearance}`;
     }
   }
 
@@ -869,10 +865,10 @@
     const plotH = H - padTop - padBottom;
 
     const isNocturne = state.mood === "nocturne";
-    const lineInk = isNocturne ? "#38BDF8" : "#0284C7";
-    const textInk = isNocturne ? "#F8FAFC" : "#0F172A";
-    const mutedInk = isNocturne ? "#94A3B8" : "#64748B";
-    const rainInk = isNocturne ? "rgba(56, 189, 248, 0.30)" : "rgba(2, 132, 199, 0.22)";
+    const lineInk = isNocturne ? "#3fa384" : "#1e5b49";
+    const textInk = isNocturne ? "#f2efe9" : "#16231e";
+    const mutedInk = isNocturne ? "#8e9c94" : "#5b6861";
+    const rainInk = isNocturne ? "rgba(217, 125, 84, 0.34)" : "rgba(184, 93, 59, 0.28)";
 
     const temps = slice.map((h) => Number(h.temp_c || 28));
     const minT = Math.floor(Math.min(...temps) - 1);
@@ -894,7 +890,7 @@
         const prob = Number(p.item.precip_prob_pct ?? 0);
         if (prob < 15) return "";
         const bh = Math.max(3, (prob / 100) * 18);
-        return `<rect x="${(p.x - 4).toFixed(1)}" y="${(H - padBottom - bh).toFixed(1)}" width="8" height="${bh.toFixed(1)}" rx="2" fill="${rainInk}"/>`;
+        return `<rect x="${(p.x - 4).toFixed(1)}" y="${(H - padBottom - bh).toFixed(1)}" width="8" height="${bh.toFixed(1)}" fill="${rainInk}"/>`;
       })
       .join("");
 
@@ -903,9 +899,9 @@
       .map((p, i) => {
         const hrLbl = p.idx === 0 ? "Nay" : String(p.item.hour_label || "").slice(0, 2) + "h";
         return `
-        <circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="${i === 0 ? 4 : 2.8}" fill="${lineInk}"/>
-        <text x="${p.x.toFixed(1)}" y="${(p.y - 9).toFixed(1)}" text-anchor="middle" fill="${textInk}" font-family="Be Vietnam Pro, system-ui, sans-serif" font-size="12" font-weight="600">${Math.round(p.item.temp_c)}°</text>
-        <text x="${p.x.toFixed(1)}" y="${H - 4}" text-anchor="middle" fill="${mutedInk}" font-family="Be Vietnam Pro, system-ui, sans-serif" font-size="11">${escapeHtml(hrLbl)}</text>
+        <rect x="${(p.x - (i === 0 ? 3.5 : 2)).toFixed(1)}" y="${(p.y - (i === 0 ? 3.5 : 2)).toFixed(1)}" width="${i === 0 ? 7 : 4}" height="${i === 0 ? 7 : 4}" fill="${lineInk}"/>
+        <text x="${p.x.toFixed(1)}" y="${(p.y - 8).toFixed(1)}" text-anchor="middle" fill="${textInk}" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="500">${Math.round(p.item.temp_c)}°</text>
+        <text x="${p.x.toFixed(1)}" y="${H - 4}" text-anchor="middle" fill="${mutedInk}" font-family="IBM Plex Mono, monospace" font-size="9.5">${escapeHtml(hrLbl)}</text>
       `;
       })
       .join("");
@@ -914,13 +910,13 @@
     svg.innerHTML = `
       <defs>
         <linearGradient id="${areaId}" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stop-color="${lineInk}" stop-opacity="0.18"/>
+          <stop offset="0%" stop-color="${lineInk}" stop-opacity="0.16"/>
           <stop offset="100%" stop-color="${lineInk}" stop-opacity="0.01"/>
         </linearGradient>
       </defs>
       ${rainBars}
       <path d="${areaD}" fill="url(#${areaId})"/>
-      <path d="${lineD}" fill="none" stroke="${lineInk}" stroke-width="2.2" stroke-linecap="round"/>
+      <path d="${lineD}" fill="none" stroke="${lineInk}" stroke-width="1.9" stroke-linecap="square"/>
       ${labels}
     `;
   }
@@ -930,16 +926,16 @@
     if (!svg || !points.length) return;
     const W = 560;
     const H = 100;
-    const padX = 32;
+    const padX = 28;
     const padTop = 14;
     const padBot = 20;
     const plotW = W - padX * 2;
     const plotH = H - padTop - padBot;
 
     const isNocturne = state.mood === "nocturne";
-    const lineInk = isNocturne ? "#38BDF8" : "#0284C7";
-    const textInk = isNocturne ? "#94A3B8" : "#64748B";
-    const alarmInk = isNocturne ? "rgba(248, 113, 113, 0.85)" : "rgba(220, 38, 38, 0.78)";
+    const lineInk = isNocturne ? "#3fa384" : "#1e5b49";
+    const textInk = isNocturne ? "#8e9c94" : "#5b6861";
+    const alarmInk = isNocturne ? "rgba(217, 125, 84, 0.78)" : "rgba(184, 93, 59, 0.72)";
 
     const maxTide = 2.5;
     const minTide = 0.4;
@@ -957,7 +953,7 @@
     const ticks = coords
       .filter((_, idx) => idx % 4 === 0 || idx === coords.length - 1)
       .map(
-        (c) => `<text x="${c.x.toFixed(1)}" y="${H - 4}" text-anchor="middle" fill="${textInk}" font-family="Be Vietnam Pro, system-ui, sans-serif" font-size="11">${String(c.pt.hour).padStart(2, "0")}h</text>`
+        (c) => `<text x="${c.x.toFixed(1)}" y="${H - 4}" text-anchor="middle" fill="${textInk}" font-family="IBM Plex Mono, monospace" font-size="10">${String(c.pt.hour).padStart(2, "0")}h</text>`
       )
       .join("");
 
@@ -968,12 +964,12 @@
           <stop offset="100%" stop-color="${lineInk}" stop-opacity="0.02"/>
         </linearGradient>
       </defs>
-      <text x="2" y="${padTop + 4}" fill="${textInk}" font-family="Be Vietnam Pro, system-ui, sans-serif" font-size="10">2.5m</text>
-      <text x="2" y="${H - padBot}" fill="${textInk}" font-family="Be Vietnam Pro, system-ui, sans-serif" font-size="10">0.4m</text>
+      <text x="2" y="${padTop + 4}" fill="${textInk}" font-family="IBM Plex Mono, monospace" font-size="8.5">2.5m</text>
+      <text x="2" y="${H - padBot}" fill="${textInk}" font-family="IBM Plex Mono, monospace" font-size="8.5">0.4m</text>
       <line x1="${padX}" y1="${alarmY.toFixed(1)}" x2="${W - padX}" y2="${alarmY.toFixed(1)}" stroke="${alarmInk}" stroke-dasharray="4 4" stroke-width="1.2"/>
-      <text x="${W - padX}" y="${(alarmY - 3).toFixed(1)}" text-anchor="end" fill="${alarmInk}" font-family="Be Vietnam Pro, system-ui, sans-serif" font-size="10.5" font-weight="600">BĐ I 1.8m</text>
+      <text x="${W - padX}" y="${(alarmY - 3).toFixed(1)}" text-anchor="end" fill="${alarmInk}" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600">BĐ I 1.8m</text>
       <path d="${areaD}" fill="url(#${gid})"/>
-      <path d="${lineD}" fill="none" stroke="${lineInk}" stroke-width="2" stroke-linecap="round"/>
+      <path d="${lineD}" fill="none" stroke="${lineInk}" stroke-width="1.9" stroke-linecap="square"/>
       ${ticks}
     `;
   }
@@ -1113,7 +1109,7 @@
       $("#live-flood-icon").innerHTML = UI_ICONS.shieldCheck;
       $("#live-flood-headline").textContent = "Hiện tại Cần Thơ khô ráo, không ngập";
       $("#live-flood-sub").textContent = `Mưa ${rainMm.toFixed(1)} mm/h · Triều Sông Hậu ${tideM.toFixed(2)}m`;
-      if ($("#portal-road-summary")) $("#portal-road-summary").textContent = "42/42 trục đường đều thông thoáng";
+      if ($("#portal-road-summary")) $("#portal-road-summary").textContent = "42/42 trục đường đều thông thoáng.";
       if ($("#portal-tide-chip")) $("#portal-tide-chip").textContent = "Sẵn sàng tra cứu lộ trình né ngập";
       hotspotsEl.classList.add("hidden");
       hotspotsEl.innerHTML = "";
@@ -1215,11 +1211,14 @@
       pillsWrap.querySelector(".district-pill.active")?.scrollIntoView({ behavior: "auto", block: "nearest", inline: "nearest" });
     }
 
+    if ($("#masthead-coords")) {
+      $("#masthead-coords").textContent = `${Number(cur.lat ?? 10.0333).toFixed(3)}°N · ${Number(cur.lon ?? 105.7833).toFixed(3)}°E`;
+    }
     if ($("#hero-elevation")) {
-      $("#hero-elevation").textContent = `Cốt nền +${Number(cur.elevation_m ?? 1.35).toFixed(2)}m`;
+      $("#hero-elevation").textContent = `CỐT NỀN +${Number(cur.elevation_m ?? 1.35).toFixed(2)}m`;
     }
     $("#hero-district-name").textContent = cur.name || "Quận Ninh Kiều";
-    $("#hero-hi-lo").textContent = `Cao ${Math.round(cur.temp_max_today_c ?? cur.temp_c)}° · Thấp ${Math.round(cur.temp_min_today_c ?? cur.temp_c - 5)}°`;
+    $("#hero-hi-lo").textContent = `CAO ${Math.round(cur.temp_max_today_c ?? cur.temp_c)}° · THẤP ${Math.round(cur.temp_min_today_c ?? cur.temp_c - 5)}°`;
     $("#hero-temp").textContent = `${Math.round(cur.temp_c ?? 28)}°`;
     $("#hero-weather-label").textContent = cur.weather_label || "Có mây";
     $("#hero-feels-like").textContent = `Cảm nhận ${Math.round(cur.feels_like_c ?? cur.temp_c)}° · ${Math.round(cur.pressure_hpa ?? 1012)} hPa`;
@@ -1414,7 +1413,7 @@
       state.layers.pinMarker = L.circleMarker([lat, lon], {
         radius: 8,
         color: "#ffffff",
-        fillColor: "#0284C7",
+        fillColor: "#b85d3b",
         fillOpacity: 0.95,
         weight: 2.5,
       }).addTo(map);
@@ -1516,7 +1515,7 @@
       .filter((r) => Number(r.depth_cm ?? 0) >= 8.0 && Array.isArray(r.coords) && r.coords.length >= 2)
       .sort((a, b) => Number(a.depth_cm) - Number(b.depth_cm));
 
-    const casingColor = state.activeBasemap === "street" ? "#0F172A" : "#ffffff";
+    const casingColor = state.activeBasemap === "street" ? "#1e2620" : "#ffffff";
 
     floodedRoads.forEach((road) => {
       const depth = Number(road.depth_cm);
@@ -2389,7 +2388,7 @@
         L.circleMarker([c.lat, c.lon], {
           radius: 8,
           color: "#ffffff",
-          fillColor: "#DC2626",
+          fillColor: "#b85d3b",
           fillOpacity: 0.94,
           weight: 2,
         })
@@ -2399,9 +2398,9 @@
       pending.forEach((p) => {
         L.circleMarker([p.lat, p.lon], {
           radius: 6.5,
-          color: "#D97706",
+          color: "#9e5008",
           dashArray: "3 3",
-          fillColor: "#F59E0B",
+          fillColor: "#f59e0b",
           fillOpacity: 0.72,
           weight: 2,
         })
@@ -3091,34 +3090,18 @@
     $("#btn-goto-flood-route")?.addEventListener("click", () => switchMode("flood"));
     $("#btn-goto-report-flood")?.addEventListener("click", () => switchMode("eval"));
     $("#btn-open-map-portal")?.addEventListener("click", () => switchMode("flood"));
-    $$(".purpose-card").forEach((card) => {
-      card.addEventListener("click", () => {
-        const purpose = card.dataset.purpose;
-        if (purpose === "weather") {
-          $("#live-flood-card")?.scrollIntoView({ behavior: "smooth", block: "center" });
-        } else if (purpose === "flood") {
-          switchMode("flood");
-        } else if (purpose === "eval") {
-          switchMode("eval");
-        }
-      });
-    });
-    $("#hydro-details-drawer")?.addEventListener("toggle", (e) => {
-      if (e.target.open) {
-        requestAnimationFrame(() => state.r3f.resize?.());
-      }
-    });
+    $("#btn-open-eval-portal")?.addEventListener("click", () => switchMode("eval"));
     $("#btn-refresh-live")?.addEventListener("click", () => loadLiveWeather(state.selectedDistrictId, true));
     $("#btn-reset-to-live")?.addEventListener("click", resetToLiveConditions);
 
-    // Theme Toggle: Light <-> Dark
+    // Edition Toggle: Archival Vellum Paper <-> Nocturnal River Ink
     $("#btn-theme-mood")?.addEventListener("click", () => {
       state.mood = state.mood === "vellum" ? "nocturne" : "vellum";
       document.body.dataset.mood = state.mood;
       const lbl = $("#mood-toggle-label");
       const ico = $("#mood-toggle-ico");
       const isNocturne = state.mood === "nocturne";
-      if (lbl) lbl.textContent = isNocturne ? "Sáng" : "Tối";
+      if (lbl) lbl.textContent = isNocturne ? "Giấy ấm" : "Bản đêm";
       if (ico) {
         ico.innerHTML = isNocturne
           ? `<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/>`
