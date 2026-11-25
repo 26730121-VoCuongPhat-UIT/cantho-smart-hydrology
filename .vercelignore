@@ -1,0 +1,17 @@
+__pycache__/
+*.pyc
+.git/
+.env
+.env.*
+!.env.example
+data/*.db
+data/gold_spatiotemporal_training.csv
+data/nowcast_hgbr.joblib
+docs/
+node_modules/
+tests/
+scripts/compress_ml_bundle.py
+BAO_CAO_MVP_KLTN.md
+README.md
+CONTRIBUTING.md
+LICENSE

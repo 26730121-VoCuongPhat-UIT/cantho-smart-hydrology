@@ -1,0 +1,6 @@
+{
+  "river_discharge_m3s": 7344.1,
+  "river_discharge_max_7d_m3s": 9816.5,
+  "discharge_source": "open-meteo-glofas",
+  "fetched_at": "2026-11-26T00:04:34+07:00"
+}

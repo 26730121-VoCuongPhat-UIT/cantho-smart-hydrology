@@ -1,0 +1,11 @@
+{
+  "name": "cantho-hydro-atlas",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "build": "python3 scripts/build_assets.py"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0"
+  }
+}

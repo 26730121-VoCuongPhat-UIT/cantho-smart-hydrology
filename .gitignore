@@ -1,0 +1,19 @@
+# Environment & Secrets
+.env
+.env.*
+!.env.example
+
+# Python & Node caches
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+node_modules/
+
+# Local SQLite & runtime cache JSON
+data/*.db
+data/*.sqlite
+data/bronze_openmeteo_cantho.json
+data/bronze_realtime_hub_cantho.json
+.vercel/
+.pytest_cache/

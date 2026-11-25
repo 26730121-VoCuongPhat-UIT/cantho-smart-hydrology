@@ -1,0 +1,716 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Cần Thơ Thủy Văn &amp; Khí Quyển</title>
+  <meta name="description" content="Theo dõi thời tiết, thủy triều Sông Hậu, bản đồ tìm đường né ngập và phản ánh cộng đồng tại TP. Cần Thơ." />
+  <meta name="theme-color" content="#f4f1ea" />
+  <link rel="manifest" href="/manifest.json" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,300;0,6..72,400;0,6..72,500;1,6..72,400&display=swap" rel="stylesheet" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2316231e' stroke-width='1.8'%3E%3Cpath d='M3 15h9V9h9'/%3E%3Cpath d='M3 19c3-1.4 6-1.4 9 0s6 1.4 9 0'/%3E%3Ccircle cx='16' cy='6' r='2.2' stroke='%23b85d3b'/%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
+  <link rel="stylesheet" href="/static/styles.css?v=20261126v8" />
+</head>
+<body data-active-mode="weather" data-mood="vellum">
+  <div class="paper-grain-overlay" aria-hidden="true"></div>
+
+  <!-- Top Navigation Header -->
+  <header class="editorial-masthead" role="banner">
+    <div class="masthead-inner">
+      <div class="masthead-brand">
+        <span class="masthead-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="square" stroke-linejoin="miter">
+            <path d="M3 14h8V8h4"/>
+            <path d="M3 19c3.2-1.5 5.8-1.5 9 0s5.8 1.5 9 0"/>
+            <circle cx="17.5" cy="6.5" r="2"/>
+          </svg>
+        </span>
+        <div class="masthead-titles">
+          <span class="masthead-name">CẦN THƠ</span>
+          <span class="masthead-sub">THỦY VĂN &amp; KHÍ QUYỂN</span>
+        </div>
+        <span class="masthead-coords" id="masthead-coords">10.033°N · 105.783°E</span>
+      </div>
+
+      <nav class="masthead-tabs" role="tablist" aria-label="Phân mục chính">
+        <button type="button" class="mode-btn active" id="btn-mode-weather" role="tab" aria-selected="true" data-mode="weather">
+          <span class="tab-idx">01</span>
+          <span>Khí quyển</span>
+        </button>
+        <button type="button" class="mode-btn" id="btn-mode-flood" role="tab" aria-selected="false" data-mode="flood">
+          <span class="tab-idx">02</span>
+          <span>Bản đồ &amp; Né ngập</span>
+          <span class="mode-alert-dot hidden" id="badge-auto-flood-alert" aria-label="Có điểm ngập"></span>
+        </button>
+        <button type="button" class="mode-btn" id="btn-mode-eval" role="tab" aria-selected="false" data-mode="eval">
+          <span class="tab-idx">03</span>
+          <span>Cộng đồng<span class="tab-long-suffix"> &amp; Camera</span></span>
+        </button>
+      </nav>
+
+      <div class="masthead-utils">
+        <div class="masthead-clock" aria-live="polite">
+          <span class="live-indicator" id="live-source-pill">
+            <span class="live-dot" aria-hidden="true"></span>
+            <span id="live-source-text">LIVE</span>
+          </span>
+          <strong id="vn-live-clock">--:--</strong>
+        </div>
+
+        <button type="button" class="masthead-icon-btn" id="btn-refresh-live" title="Cập nhật dữ liệu mới nhất" aria-label="Cập nhật dữ liệu mới nhất">
+          <svg class="ui-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="square" stroke-linejoin="miter">
+            <path d="M21 12a9 9 0 1 1-2.64-6.36"/>
+            <polyline points="21 3 21 9 15 9"/>
+          </svg>
+        </button>
+
+        <button type="button" class="masthead-edition-btn" id="btn-theme-mood" title="Chuyển giao diện Sáng / Ban đêm" aria-label="Chuyển giao diện Sáng / Ban đêm">
+          <svg class="ui-ico" id="mood-toggle-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="square" stroke-linejoin="miter" aria-hidden="true">
+            <path d="M20.35 15.35A9 9 0 0 1 8.65 3.65a9 9 0 1 0 11.7 11.7Z"/>
+          </svg>
+          <span id="mood-toggle-label">Bản đêm</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- LAYER A: WEATHER & TIDE OVERVIEW ("01 KHÍ QUYỂN") -->
+  <section class="sanctuary-stage" id="panel-weather" aria-labelledby="btn-mode-weather">
+    <div class="sanctuary-inner">
+      <div class="atlas-upper-split">
+        <div class="editorial-hero">
+          <div class="district-bar" id="district-pills" role="tablist" aria-label="Chọn quận huyện Cần Thơ"></div>
+
+          <div class="hero-kicker-row">
+            <span class="hero-elevation" id="hero-elevation">CỐT NỀN +1.35m</span>
+            <span class="kicker-sep" aria-hidden="true">/</span>
+            <span class="hero-hi-lo" id="hero-hi-lo">CAO --° · THẤP --°</span>
+          </div>
+
+          <h1 class="hero-city" id="hero-district-name">Quận Ninh Kiều</h1>
+
+          <div class="hero-temp-band">
+            <span class="hero-temp" id="hero-temp">--°</span>
+            <div class="hero-meta-stack">
+              <strong class="hero-condition-label" id="hero-weather-label">Đang tải dữ liệu...</strong>
+              <span class="hero-feels-like" id="hero-feels-like">Cảm nhận --° · ---- hPa</span>
+            </div>
+          </div>
+
+          <div class="live-flood-card flood-state-safe" id="live-flood-card">
+            <div class="flood-dispatch-head">
+              <div class="flood-orb" id="live-flood-icon" aria-hidden="true"></div>
+              <div class="flood-dispatch-copy">
+                <span class="flood-dispatch-tag" id="live-flood-status-tag">TRẠNG THÁI MẶT ĐƯỜNG</span>
+                <h2 class="live-flood-headline" id="live-flood-headline">Đang kiểm tra mặt đường...</h2>
+                <p class="live-flood-sub" id="live-flood-sub">Đồng bộ mưa &amp; thủy triều Sông Hậu</p>
+              </div>
+              <button type="button" class="btn-dispatch-cta" id="btn-goto-flood-route">
+                <span>Tra cứu lộ trình</span>
+                <svg class="ui-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square" stroke-linejoin="miter" aria-hidden="true">
+                  <path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>
+                </svg>
+              </button>
+            </div>
+            <div class="live-flood-hotspots hidden" id="live-flood-hotspots"></div>
+          </div>
+        </div>
+
+        <aside class="cross-section-pane" aria-label="Mặt cắt sống Trời – Phố – Sông Hậu">
+          <div class="cross-section-head">
+            <span class="section-folio-label">MẶT CẮT ĐỊA – THỦY VĂN · TRỜI – PHỐ – SÔNG HẬU</span>
+            <span class="section-folio-readout" id="cross-section-readout">CỐT +1.35m · TRIỀU --m</span>
+          </div>
+
+          <div class="r3f-wrap">
+            <canvas id="r3f-canvas" aria-hidden="true"></canvas>
+            <div id="r3f-fallback" class="r3f-fallback hidden" aria-hidden="true"></div>
+          </div>
+
+          <div class="cross-section-foot">
+            <span>THANG ĐO HÒN DẤU (m)</span>
+            <span>BĐ I 1.80m · II 1.90m · III 2.00m</span>
+          </div>
+        </aside>
+      </div>
+
+      <div class="editorial-ledger">
+        <article class="ledger-col">
+          <div class="ledger-col-head">
+            <h3 class="ledger-col-title"><span class="col-roman">I</span> Nhịp nhiệt &amp; Lượng mưa</h3>
+            <div class="underline-segmented" role="tablist" aria-label="Khung dự báo">
+              <button type="button" class="mini-seg-btn active" id="btn-outlook-24h" aria-selected="true">24 giờ</button>
+              <button type="button" class="mini-seg-btn" id="btn-outlook-7d" aria-selected="false">7 ngày</button>
+            </div>
+          </div>
+
+          <div id="outlook-24h-pane">
+            <div class="hourly-chart-box">
+              <svg id="hourly-chart-svg" viewBox="0 0 560 88" preserveAspectRatio="none" aria-label="Đường nhiệt độ 24 giờ"></svg>
+            </div>
+            <div class="hourly-strip" id="hourly-strip-list"></div>
+          </div>
+
+          <div id="outlook-7d-pane" class="hidden">
+            <div class="daily-forecast-list" id="daily-7d-list"></div>
+          </div>
+        </article>
+
+        <article class="ledger-col">
+          <div class="ledger-col-head">
+            <h3 class="ledger-col-title"><span class="col-roman">II</span> Thủy văn &amp; Môi trường</h3>
+            <span class="quiet-meta" id="live-flood-source-tag">Thực tế --:--</span>
+          </div>
+
+          <div class="hydro-crosshair-grid">
+            <div class="crosshair-cell">
+              <div class="cell-top">
+                <span class="cell-label">MỰC TRIỀU</span>
+                <span class="status-tag" id="tide-alarm-badge">--</span>
+              </div>
+              <strong class="cell-val" id="tile-tide-val">-- m</strong>
+              <span class="cell-sub" id="tile-tide-peak">Đỉnh triều --</span>
+              <span class="cell-sub mono-sub" id="tile-glofas-discharge">Sông Hậu: -- m³/s</span>
+            </div>
+
+            <div class="crosshair-cell">
+              <div class="cell-top">
+                <span class="cell-label">MƯA &amp; GIÓ</span>
+                <span class="cell-mini" id="hero-rain-now">Mưa -- mm/h</span>
+              </div>
+              <strong class="cell-val" id="hero-wind">-- km/h</strong>
+              <span class="cell-sub">Độ ẩm <span id="hero-humidity">--%</span></span>
+            </div>
+
+            <div class="crosshair-cell">
+              <div class="cell-top">
+                <span class="cell-label">KHÔNG KHÍ</span>
+                <span class="status-tag" id="aqi-level-badge">--</span>
+              </div>
+              <strong class="cell-val"><span id="tile-aqi-val">--</span> <span class="cell-unit">US AQI</span></strong>
+              <span class="cell-sub" id="tile-aqi-sub">PM2.5 -- µg/m³</span>
+            </div>
+
+            <div class="crosshair-cell">
+              <div class="cell-top">
+                <span class="cell-label">TIA UV &amp; ÂM LỊCH</span>
+                <span class="status-tag" id="uv-level-badge">--</span>
+              </div>
+              <strong class="cell-val"><span class="cell-unit">UV</span> <span id="tile-uv-val">--</span> · <span id="tile-lunar-val">-- ÂL</span></strong>
+              <span class="cell-sub" id="tile-sun-sub">Mặt trời -- – --</span>
+            </div>
+          </div>
+        </article>
+
+        <article class="ledger-col portal-col">
+          <div class="ledger-col-head">
+            <h3 class="ledger-col-title"><span class="col-roman">III</span> Giao thông Đô thị</h3>
+            <span class="quiet-meta" id="live-flood-tide-tag">-- m</span>
+          </div>
+
+          <div class="portal-preview">
+            <div class="portal-river-lines" aria-hidden="true">
+              <svg viewBox="0 0 280 54" fill="none">
+                <path d="M-4 38 C 48 32, 92 12, 152 24 C 206 35, 240 16, 284 15" stroke="currentColor" stroke-width="1.6" stroke-opacity="0.34"/>
+                <path d="M-4 46 C 55 42, 102 22, 165 32 C 215 39, 246 25, 284 24" stroke="currentColor" stroke-width="1" stroke-opacity="0.18" stroke-dasharray="3 3"/>
+                <rect x="93" y="21" width="6" height="6" fill="var(--accent-river)"/>
+                <rect x="174" y="25" width="6" height="6" fill="var(--accent-terracotta)"/>
+                <rect x="220" y="18" width="6" height="6" fill="currentColor" fill-opacity="0.45"/>
+              </svg>
+            </div>
+            <p class="portal-summary" id="portal-road-summary">Đang kiểm tra 42 trục đường...</p>
+            <span class="portal-chip" id="portal-tide-chip">Định tuyến né ngập theo bản đồ đường phố</span>
+          </div>
+
+          <button type="button" class="btn-editorial-cta" id="btn-open-map-portal">
+            <span>Mở Bản đồ &amp; Tìm đường né ngập</span>
+            <svg class="ui-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square" stroke-linejoin="miter" aria-hidden="true">
+              <path d="M7 17 17 7"/><path d="M7 7h10v10"/>
+            </svg>
+          </button>
+        </article>
+      </div>
+
+      <footer class="atlas-colophon" id="weather-advisory-footer">
+        <div class="colophon-advisory">
+          <span class="colophon-regime" id="colophon-tide-regime">--</span>
+          <span class="colophon-note" id="colophon-tourism-note">Đang đồng bộ nhận định thủy văn Sông Hậu...</span>
+        </div>
+        <div class="colophon-meta" id="colophon-data-source">Nguồn: Open-Meteo · GloFAS · Cộng đồng</div>
+      </footer>
+    </div>
+  </section>
+
+  <!-- LAYER B: FULL-BLEED 100vw x 100vh CARTOGRAPHIC GIS STAGE ("02 BẢN ĐỒ & NÉ NGẬP") -->
+  <section class="map-stage" id="map-stage" aria-label="Bản đồ ngập và dẫn đường TP. Cần Thơ">
+    <div id="map"></div>
+
+    <div class="map-mode-pill" id="map-mode-badge">
+      <span class="pill-dot"></span>
+      <span id="map-mode-badge-text">Thực tế Cần Thơ: Đang kiểm tra...</span>
+    </div>
+
+    <div class="map-pin-banner hidden" id="map-pin-banner" role="status" aria-live="polite">
+      <span id="map-pin-banner-text">Chạm vào bản đồ để đặt vị trí</span>
+      <button type="button" class="btn-clear-pins" id="btn-cancel-map-pin">Hủy</button>
+    </div>
+
+    <div class="map-toolbar-group">
+      <div class="map-toolbar">
+        <div class="basemap-pills" id="basemap-switcher" role="group" aria-label="Chọn nền bản đồ">
+          <button type="button" class="basemap-btn active" data-basemap="street">Phố</button>
+          <button type="button" class="basemap-btn" data-basemap="satellite">Vệ tinh</button>
+          <button type="button" class="basemap-btn" data-basemap="dark">Tối</button>
+        </div>
+
+        <button type="button" class="layers-trigger" id="btn-toggle-layers" aria-expanded="false" aria-controls="map-layers-popover">
+          <svg class="ui-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="square" stroke-linejoin="miter" aria-hidden="true">
+            <polygon points="12 2 2 7 12 12 22 7 12 2"/>
+            <polyline points="2 17 12 22 22 17"/>
+            <polyline points="2 12 12 17 22 12"/>
+          </svg>
+          <span>Lớp bản đồ</span>
+        </button>
+      </div>
+
+      <div class="layers-popover hidden" id="map-layers-popover" role="region" aria-label="Bật tắt lớp hiển thị">
+        <div class="popover-title">Lớp bản đồ trắc địa</div>
+        <label class="popover-check">
+          <input type="checkbox" id="chk-layer-roads" checked />
+          <span>Đường đang ngập</span>
+        </label>
+        <label class="popover-check">
+          <input type="checkbox" id="chk-layer-cameras" checked />
+          <span>Trạm Camera tuyến đường</span>
+        </label>
+        <label class="popover-check">
+          <input type="checkbox" id="chk-layer-stations" checked />
+          <span>Thời tiết 6 quận/huyện</span>
+        </label>
+        <label class="popover-check">
+          <input type="checkbox" id="chk-layer-incidents" checked />
+          <span>Điểm dân báo ngập</span>
+        </label>
+        <div class="popover-divider"></div>
+        <label class="popover-check">
+          <input type="checkbox" id="chk-layer-hex" />
+          <span>Lưới dự báo AI (H3)</span>
+        </label>
+      </div>
+    </div>
+
+    <div class="map-legend-pill" id="map-legend">
+      <div class="legend-items">
+        <span class="legend-item"><i class="swatch depth-warn"></i>Ngập nhẹ (8–18cm)</span>
+        <span class="legend-item"><i class="swatch depth-danger"></i>Ngập sâu (&ge;18cm)</span>
+        <span class="legend-sep" aria-hidden="true"></span>
+        <span class="legend-item"><i class="swatch route-green"></i>Đường an toàn</span>
+        <span class="legend-item"><i class="swatch route-red"></i>Đoạn ngập nên tránh</span>
+      </div>
+    </div>
+
+    <!-- Floating Left Vellum/Nocturne Field Ledger: Mode 02 -->
+    <aside class="floating-sheet" id="panel-flood" aria-labelledby="btn-mode-flood">
+      <div class="mode-status-strip" id="flood-mode-strip">
+        <div class="strip-left">
+          <span class="strip-dot"></span>
+          <span id="flood-mode-status-text">Theo mực nước &amp; mưa thực tế</span>
+        </div>
+        <div class="strip-actions">
+          <button type="button" class="btn-reset-live hidden" id="btn-reset-to-live">Quay về Thực tế</button>
+          <button type="button" class="btn-sheet-toggle" id="btn-toggle-sheet" aria-expanded="true">Thu gọn</button>
+        </div>
+      </div>
+
+      <div class="sheet-section">
+        <h2 class="sheet-title">Tìm lộ trình êm nhất</h2>
+        <div class="vehicle-selector-grid" id="vehicle-grid"></div>
+
+        <!-- Dual Smart Autocomplete Comboboxes (A / B) over 1,600+ Can Tho POIs -->
+        <div class="route-combo-stack">
+          <div class="route-combo-col">
+            <div class="route-combo-row">
+              <span class="combo-badge start" aria-hidden="true">A</span>
+              <input
+                type="text"
+                class="combo-input"
+                id="route-start-input"
+                placeholder="Điểm đi A (VD: Lotte Mart, ĐHCT...)"
+                aria-label="Tìm hoặc chọn Điểm đi A"
+                autocomplete="off"
+              />
+              <button type="button" class="btn-combo-clear" id="btn-clear-start" title="Xóa để chọn lại Điểm đi" aria-label="Xóa để chọn lại Điểm đi">&times;</button>
+              <div class="combo-dropdown hidden" id="combo-start-list" role="listbox" aria-label="Gợi ý Điểm đi A"></div>
+            </div>
+
+            <div class="route-combo-row">
+              <span class="combo-badge end" aria-hidden="true">B</span>
+              <input
+                type="text"
+                class="combo-input"
+                id="route-end-input"
+                placeholder="Điểm đến B (VD: Bến Ninh Kiều, ĐH FPT...)"
+                aria-label="Tìm hoặc chọn Điểm đến B"
+                autocomplete="off"
+              />
+              <button type="button" class="btn-combo-clear" id="btn-clear-end" title="Xóa để chọn lại Điểm đến" aria-label="Xóa để chọn lại Điểm đến">&times;</button>
+              <div class="combo-dropdown hidden" id="combo-end-list" role="listbox" aria-label="Gợi ý Điểm đến B"></div>
+            </div>
+          </div>
+
+          <button type="button" class="btn-swap-points btn-swap-vertical" id="btn-swap-route" title="Đổi chiều đi và đến" aria-label="Đổi điểm đi và điểm đến">
+            <svg class="ui-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square" stroke-linejoin="miter" aria-hidden="true">
+              <path d="M8 5v14"/><path d="m4 9 4-4 4 4"/><path d="M16 19V5"/><path d="m12 15 4 4 4-4"/>
+            </svg>
+          </button>
+        </div>
+
+        <div class="route-pin-bar">
+          <button type="button" class="btn-utility-sharp" id="btn-pin-start">Chấm A trên map</button>
+          <button type="button" class="btn-utility-sharp" id="btn-pin-end">Chấm B trên map</button>
+        </div>
+
+        <div class="custom-endpoints-bar hidden" id="custom-endpoints-bar">
+          <span id="custom-endpoints-text">Đang dùng điểm tự do</span>
+          <button type="button" class="btn-clear-pins" id="btn-clear-custom-pins">Khôi phục</button>
+        </div>
+
+        <button type="button" class="btn-editorial-cta" id="btn-calc-flood-route">
+          <span>Tìm đường tránh ngập</span>
+        </button>
+
+        <div class="route-utility-row">
+          <button type="button" class="btn-utility-sharp" id="btn-gps-nearest" title="Đặt điểm đi A theo vị trí GPS hiện tại" aria-label="Đặt điểm đi A theo vị trí GPS hiện tại">
+            <svg class="ui-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="square" stroke-linejoin="miter" aria-hidden="true">
+              <circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/>
+            </svg>
+            <span>Vị trí của tôi</span>
+          </button>
+          <button type="button" class="btn-utility-sharp" id="btn-share-route" title="Sao chép liên kết chia sẻ lộ trình này" aria-label="Sao chép liên kết chia sẻ lộ trình này">
+            <svg class="ui-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="square" stroke-linejoin="miter" aria-hidden="true">
+              <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+              <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+            </svg>
+            <span>Chia sẻ</span>
+          </button>
+          <button type="button" class="btn-utility-sharp" id="btn-open-gmaps" title="Mở lộ trình né ngập trên Google Maps" aria-label="Mở lộ trình né ngập trên Google Maps">
+            <svg class="ui-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="square" stroke-linejoin="miter" aria-hidden="true">
+              <path d="M7 17 17 7"/><path d="M7 7h10v10"/>
+            </svg>
+            <span>Google Maps</span>
+          </button>
+        </div>
+
+        <div class="route-compare-grid" id="route-compare-grid">
+          <div class="route-box route-box-safe">
+            <div class="route-box-head">
+              <span class="route-dot safe"></span>
+              <span>Đường an toàn</span>
+            </div>
+            <strong class="route-dist" id="route-safe-dist">-- km</strong>
+            <span class="route-meta" id="route-safe-depth">Tối đa: -- cm</span>
+            <span class="route-badge safe" id="route-safe-status">--</span>
+          </div>
+
+          <div class="route-box route-box-std">
+            <div class="route-box-head">
+              <span class="route-dot danger"></span>
+              <span>Đường ngắn nhất</span>
+            </div>
+            <strong class="route-dist" id="route-std-dist">-- km</strong>
+            <span class="route-meta" id="route-std-depth">Tối đa: -- cm</span>
+            <span class="route-badge" id="route-std-status">--</span>
+          </div>
+        </div>
+
+        <p class="route-status-note" id="route-banner">Chọn 2 điểm hoặc chấm trên bản đồ để xem lộ trình.</p>
+
+        <!-- Departure Window Advisor (+0h..+3h) -->
+        <div class="departure-advisor hidden" id="departure-advisor-box">
+          <div class="advisor-head">
+            <span class="sub-block-title">Cố vấn khung giờ xuất hành</span>
+          </div>
+          <p class="advisor-note" id="departure-advice-text"></p>
+          <div class="advisor-slots" id="departure-slots-grid"></div>
+        </div>
+      </div>
+
+      <details class="soft-drawer" open>
+        <summary class="soft-drawer-summary">
+          <span>Các đoạn đường đang ngập</span>
+          <span class="drawer-count-pill" id="sim-summary-pill">--</span>
+        </summary>
+        <div class="soft-drawer-body">
+          <div class="flood-kpi-compact">
+            <span><strong id="flood-kpi-roads">--</strong> tuyến sâu</span>
+            <span>Đỉnh <strong id="flood-kpi-max">-- cm</strong></span>
+            <span>Triều <strong id="flood-kpi-tide">-- m</strong></span>
+          </div>
+          <div class="top-flooded-list" id="top-flooded-list"></div>
+        </div>
+      </details>
+
+      <details class="soft-drawer" id="sim-drawer">
+        <summary class="soft-drawer-summary">
+          <span>Giả lập mùa triều cường / mưa lớn</span>
+          <span class="drawer-count-pill">Tùy chọn</span>
+        </summary>
+        <div class="soft-drawer-body">
+          <div class="scenario-chips" id="scenario-list"></div>
+          <p class="scenario-desc-note hidden" id="scenario-desc-note"></p>
+
+          <div class="model-controls-row">
+            <div class="horizon-group">
+              <span class="field-inline-label">Khung</span>
+              <div class="segmented-sm" id="horizon-tabs">
+                <button type="button" class="seg-btn active" data-horizon="now">Hiện tại</button>
+                <button type="button" class="seg-btn" data-horizon="+1h">+1h</button>
+                <button type="button" class="seg-btn" data-horizon="+3h">+3h</button>
+                <button type="button" class="seg-btn" data-horizon="+6h">+6h</button>
+              </div>
+            </div>
+            <div class="field-group-inline">
+              <label for="ml-model-select">AI</label>
+              <select id="ml-model-select">
+                <option value="hgbr">HistGradientBoosting</option>
+                <option value="mlp">MLP Neural Net</option>
+                <option value="rf">Random Forest</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="sliders-grid">
+            <div class="slider-item">
+              <div class="slider-top">
+                <label for="slider-tide">Mực triều</label>
+                <span class="slider-readout" id="val-tide">1.45 m</span>
+              </div>
+              <input type="range" id="slider-tide" min="0.80" max="2.45" step="0.05" value="1.45" />
+            </div>
+
+            <div class="slider-item">
+              <div class="slider-top">
+                <label for="slider-rain">Cường độ mưa</label>
+                <span class="slider-readout" id="val-rain">0 mm/h</span>
+              </div>
+              <input type="range" id="slider-rain" min="0" max="110" step="1" value="0" />
+            </div>
+
+            <div class="slider-item">
+              <div class="slider-top">
+                <label for="slider-rain3h">Mưa 3 giờ</label>
+                <span class="slider-readout" id="val-rain3h">0 mm</span>
+              </div>
+              <input type="range" id="slider-rain3h" min="0" max="200" step="2" value="0" />
+            </div>
+
+            <div class="slider-item">
+              <div class="slider-top">
+                <label for="slider-delta">Tốc độ triều</label>
+                <span class="slider-readout" id="val-delta">+0.00 m/h</span>
+              </div>
+              <input type="range" id="slider-delta" min="-0.35" max="0.45" step="0.05" value="0.00" />
+            </div>
+          </div>
+
+          <label class="spring-check">
+            <input type="checkbox" id="chk-spring" />
+            <span>Kỳ triều cường Rằm / Mùng 1 Âm lịch</span>
+          </label>
+
+          <div class="hydro-svg-wrap">
+            <svg id="hydrograph-svg" viewBox="0 0 560 100" preserveAspectRatio="none" aria-label="Thủy đồ 24 giờ"></svg>
+          </div>
+        </div>
+      </details>
+    </aside>
+  </section>
+
+  <!-- LAYER C: FULL-PAGE 2-COLUMN COMMUNITY SOCIAL NETWORK & ROAD CAMERA HUB ("03 CỘNG ĐỒNG & CAMERA") -->
+  <section class="community-stage" id="panel-eval" aria-labelledby="btn-mode-eval">
+    <div class="community-inner">
+      <div class="community-header-bar">
+        <div>
+          <span class="section-folio-label">BẢN TIN CỘNG ĐỒNG &amp; CAMERA GIAO THÔNG CẦN THƠ</span>
+          <h1 class="community-title">Bảng tin Hiện trường &amp; Quan trắc Góc đường</h1>
+        </div>
+        <div class="community-header-actions">
+          <div class="ttl-meta-pill" id="incident-ttl-strip">Hiệu lực tin: -- phút</div>
+          <span class="drawer-count-pill" id="incident-stats">--</span>
+          <button type="button" class="btn-utility-sharp" id="btn-toggle-incident-demo">Xem dữ liệu mẫu</button>
+        </div>
+      </div>
+
+      <div class="incident-demo-banner hidden" id="incident-demo-banner">
+        <span>Đang xem <strong>Dữ liệu mẫu minh họa</strong> (3 cụm ngập xác thực + 1 tin đơn lẻ) — không lưu vào dữ liệu thật.</span>
+        <button type="button" class="btn-utility-sharp" id="btn-exit-incident-demo">Quay về Dữ liệu thật</button>
+      </div>
+
+      <div class="community-grid">
+        <!-- LEFT COLUMN: SOCIAL COMPOSER & LIVE FEED -->
+        <div class="social-feed-column">
+          <div class="social-composer" id="social-composer">
+            <div class="composer-top-row">
+              <input type="text" id="incident-author" placeholder="Tên hiển thị của bạn (lưu tự động)..." aria-label="Tên người đăng" maxlength="50" />
+              <select id="incident-district" aria-label="Quận hoặc huyện">
+                <option value="ninh_kieu">Quận Ninh Kiều</option>
+                <option value="binh_thuy">Quận Bình Thủy</option>
+                <option value="cai_rang">Quận Cái Răng</option>
+                <option value="o_mon">Quận Ô Môn</option>
+                <option value="thot_not">Quận Thốt Nốt</option>
+                <option value="phong_dien">Huyện Phong Điền</option>
+              </select>
+            </div>
+
+            <div class="composer-cat-tabs" id="composer-cat-tabs" role="group" aria-label="Tình trạng mặt đường">
+              <button type="button" class="cat-tab active" data-cat="flood_deep">Ngập sâu</button>
+              <button type="button" class="cat-tab" data-cat="flood_light">Ngập nhẹ</button>
+              <button type="button" class="cat-tab" data-cat="traffic">Kẹt xe</button>
+              <button type="button" class="cat-tab" data-cat="rain">Mưa lớn</button>
+              <button type="button" class="cat-tab" data-cat="dry">Khô thoáng</button>
+            </div>
+
+            <div class="composer-loc-row">
+              <select id="incident-node-select" aria-label="Chọn giao lộ hoặc tuyến đường"></select>
+              <div class="composer-depth-wrap">
+                <label class="depth-unit-label" for="incident-depth">Mực nước</label>
+                <input type="number" id="incident-depth" min="0" max="200" value="25" title="Mực nước ngập (cm)" aria-label="Mực nước ngập (cm)" />
+                <span class="depth-unit-label">cm</span>
+              </div>
+            </div>
+
+            <div class="composer-loc-tools">
+              <input type="text" id="incident-location-hint" placeholder="Tên đường, hẻm cụ thể (VD: Ngã tư Mậu Thân - 3/2)..." aria-label="Vị trí cụ thể" maxlength="100" />
+              <button type="button" class="btn-utility-sharp" id="btn-post-gps">Vị trí GPS</button>
+              <button type="button" class="btn-utility-sharp" id="btn-toggle-pin">Chấm trên map</button>
+            </div>
+            <div class="composer-coord-bar">
+              <div class="composer-coord-status" id="composer-coord-status">Vị trí đăng: theo giao lộ đã chọn</div>
+              <button type="button" class="btn-clear-pins hidden" id="btn-reset-incident-pin">Dùng giao lộ</button>
+            </div>
+
+            <input type="text" id="incident-hp" name="website" class="hp-field" tabindex="-1" autocomplete="off" aria-hidden="true" />
+            <textarea id="incident-note" rows="2" placeholder="Chia sẻ tình hình thực tế mặt đường, xe tay ga qua được không..." aria-label="Nội dung bài đăng" maxlength="280"></textarea>
+
+            <div class="composer-photo-preview hidden" id="composer-photo-preview-wrap">
+              <img id="composer-photo-preview" alt="Xem trước ảnh hiện trường" />
+              <button type="button" class="btn-utility-sharp" id="btn-remove-photo">Xóa ảnh</button>
+            </div>
+
+            <div class="composer-footer-row">
+              <label class="btn-utility-sharp photo-upload-label" for="incident-photo-input">
+                <svg class="ui-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="square" stroke-linejoin="miter" aria-hidden="true">
+                  <rect x="3" y="5" width="18" height="14"/><circle cx="8.5" cy="10.5" r="1.5"/><path d="m21 16-5-5L5 19"/>
+                </svg>
+                <span>Đính kèm ảnh hiện trường</span>
+              </label>
+              <input type="file" id="incident-photo-input" accept="image/*" class="hidden" />
+              <button type="button" class="btn-editorial-cta composer-submit-btn" id="btn-submit-incident">Đăng lên Cộng đồng</button>
+            </div>
+          </div>
+
+          <!-- Feed Filters -->
+          <div class="feed-filter-bar">
+            <div class="feed-filter-tabs" id="feed-filter-tabs">
+              <button type="button" class="seg-btn active" data-filter="all">Tất cả</button>
+              <button type="button" class="seg-btn" data-filter="flood">Đang ngập</button>
+              <button type="button" class="seg-btn" data-filter="photo">Có ảnh</button>
+            </div>
+            <select id="feed-district-filter" aria-label="Lọc theo quận">
+              <option value="all">Toàn TP. Cần Thơ</option>
+              <option value="ninh_kieu">Ninh Kiều</option>
+              <option value="binh_thuy">Bình Thủy</option>
+              <option value="cai_rang">Cái Răng</option>
+              <option value="o_mon">Ô Môn</option>
+              <option value="thot_not">Thốt Nốt</option>
+              <option value="phong_dien">Phong Điền</option>
+            </select>
+          </div>
+
+          <div class="social-feed-list" id="incident-list"></div>
+        </div>
+
+        <!-- RIGHT COLUMN: 8 ROAD CAMERAS & MODEL METRICS -->
+        <aside class="community-side-column">
+          <section class="camera-hub-box" aria-label="Hệ thống Camera tuyến đường Cần Thơ">
+            <div class="ledger-col-head">
+              <h2 class="ledger-col-title">Camera Tuyến Đường (8 Trạm)</h2>
+              <span class="drawer-count-pill" id="camera-ioc-status-pill">Chờ API IOC</span>
+            </div>
+            <p class="camera-ioc-note" id="camera-ioc-notice">Đang đồng bộ danh sách trạm Camera...</p>
+
+            <div class="camera-viewer-card" id="camera-inline-viewer"></div>
+            <div class="camera-station-grid" id="camera-station-list"></div>
+          </section>
+
+          <details class="soft-drawer camera-kltn-drawer">
+            <summary class="soft-drawer-summary">
+              <span>Thông số Mô hình AI &amp; Đánh giá</span>
+              <span class="drawer-count-pill" id="eval-dataset-badge">--</span>
+            </summary>
+            <div class="soft-drawer-body">
+              <p class="kltn-explain-note">Bảng đối chiếu sai số dự báo mực ngập (cm) giữa 3 mô hình AI theo các khung giờ +1h, +3h, +6h.</p>
+              <div class="table-scroll">
+                <table class="clean-table">
+                  <thead>
+                    <tr>
+                      <th>Khung</th>
+                      <th>Mô hình</th>
+                      <th>MAE</th>
+                      <th>RMSE</th>
+                      <th>R²</th>
+                      <th>F1</th>
+                    </tr>
+                  </thead>
+                  <tbody id="ml-table-body"></tbody>
+                </table>
+              </div>
+
+              <div class="sub-block-title">Đóng góp yếu tố gây ngập</div>
+              <div class="attribution-list" id="attribution-list"></div>
+
+              <div class="sub-block-title">Nguồn dữ liệu &amp; Thư viện mở</div>
+              <div class="recon-list" id="github-recon-list"></div>
+            </div>
+          </details>
+        </aside>
+      </div>
+    </div>
+  </section>
+
+  <!-- SHARED CAMERA MODAL (Accessible from both Tab 02 Map & Tab 03) -->
+  <div class="editorial-modal hidden" id="camera-modal" role="dialog" aria-modal="true" aria-labelledby="camera-modal-title">
+    <div class="editorial-modal-backdrop" id="camera-modal-backdrop"></div>
+    <div class="editorial-modal-box">
+      <div class="editorial-modal-head">
+        <div>
+          <span class="section-folio-label">TRẠM CAMERA GIAO LỘ CẦN THƠ</span>
+          <h3 id="camera-modal-title">CAM</h3>
+        </div>
+        <button type="button" class="btn-utility-sharp" id="btn-close-camera-modal">Đóng</button>
+      </div>
+      <div class="editorial-modal-body" id="camera-modal-body"></div>
+    </div>
+  </div>
+
+  <!-- PHOTO LIGHTBOX MODAL -->
+  <div class="editorial-modal hidden" id="photo-lightbox" role="dialog" aria-modal="true" aria-label="Xem ảnh hiện trường">
+    <div class="editorial-modal-backdrop" id="photo-lightbox-backdrop"></div>
+    <div class="editorial-modal-box lightbox-box">
+      <div class="editorial-modal-head">
+        <span class="section-folio-label" id="lightbox-caption">Ảnh hiện trường cộng đồng</span>
+        <button type="button" class="btn-utility-sharp" id="btn-close-lightbox">Đóng</button>
+      </div>
+      <img id="lightbox-img" alt="Ảnh hiện trường phóng to" />
+    </div>
+  </div>
+
+  <div class="toast-container" id="toast-container" aria-live="polite"></div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+  <script src="/static/app.js?v=20261126v8"></script>
+</body>
+</html>

@@ -1,0 +1,14 @@
+{
+  "Vùng ven sông (Bến Ninh Kiều, Cái Khế, Huỳnh Cương)": {
+    "Triều cường Sông Hậu": 64.3,
+    "Mưa & Dự báo NWP": 21.6,
+    "Địa hình & Thoát nước (DEM/TWI)": 13.2,
+    "Độ trễ Không gian - Thời gian": 0.9
+  },
+  "Vùng trũng nội ô (Mậu Thân, Hồ Bún Xáng, Trần Văn Hoài)": {
+    "Triều cường Sông Hậu": 56.9,
+    "Mưa & Dự báo NWP": 26.3,
+    "Địa hình & Thoát nước (DEM/TWI)": 15.7,
+    "Độ trễ Không gian - Thời gian": 1.0
+  }
+}
