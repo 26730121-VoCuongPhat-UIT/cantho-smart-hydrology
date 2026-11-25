@@ -9,6 +9,12 @@
 
 [**Trải nghiệm trực tiếp**](https://cantho-hydro-atlas.vercel.app) · [**Mở Bản đồ Né ngập**](https://cantho-hydro-atlas.vercel.app/?mode=flood&from=dhct_khu2&to=ben_ninh_kieu&veh=scooter)
 
+<br/><br/>
+
+<a href="https://cantho-hydro-atlas.vercel.app">
+  <img src="docs/screenshots/hero-banner.png" alt="Cần Thơ Thủy Văn & Khí Quyển — Thời tiết, Thủy triều Sông Hậu & Bản đồ Né ngập" width="100%" />
+</a>
+
 </div>
 
 ---
