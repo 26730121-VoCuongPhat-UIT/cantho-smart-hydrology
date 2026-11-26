@@ -130,7 +130,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             "script-src 'self' https://unpkg.com; "
             "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://unpkg.com; "
             "font-src 'self' https://fonts.gstatic.com data:; "
-            "img-src 'self' data: blob: https://tile.openstreetmap.org https://*.tile.openstreetmap.org https://server.arcgisonline.com https://unpkg.com; "
+            "img-src 'self' data: blob: https://tile.openstreetmap.org https://*.tile.openstreetmap.org https://server.arcgisonline.com https://tilecache.rainviewer.com https://unpkg.com; "
             "connect-src 'self'; "
             "worker-src 'self'; "
             "object-src 'none'; "
@@ -233,6 +233,10 @@ class TieredCacheMiddleware(BaseHTTPMiddleware):
                 response.headers["Cache-Control"] = "public, s-maxage=25, stale-while-revalidate=60"
         elif path == "/api/init":
             response.headers["Cache-Control"] = "public, s-maxage=300, stale-while-revalidate=600"
+        elif path == "/api/radar":
+            response.headers["Cache-Control"] = "public, s-maxage=120, stale-while-revalidate=300"
+        elif path == "/api/autonomous/traffic":
+            response.headers["Cache-Control"] = "public, s-maxage=90, stale-while-revalidate=180"
         elif path in ("/manifest.json", "/sw.js", "/api/health"):
             response.headers["Cache-Control"] = "public, max-age=60"
         elif path.startswith("/static/"):

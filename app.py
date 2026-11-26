@@ -21,6 +21,12 @@ from starlette.responses import FileResponse, JSONResponse, StreamingResponse
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
+from backend.autonomous_engine import (
+    fuse_autonomous_traffic_into_roads,
+    get_autonomous_traffic_snapshot,
+    get_rainviewer_radar_meta,
+    is_tomtom_configured,
+)
 from backend.camera_engine import get_cameras_payload
 from backend.realtime_hub import format_sse, realtime_bus
 from backend.cantho_geo import (
@@ -64,6 +70,31 @@ BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
 PUBLIC_DIR = BASE_DIR / "public"
 PUBLIC_ASSETS_DIR = PUBLIC_DIR / "assets"
+
+
+def _load_local_env_files() -> None:
+    """Populate os.environ from .env / .env.local in local development without third-party dotenv."""
+    if os.environ.get("VERCEL") == "1":
+        return
+    for fname in (".env", ".env.local"):
+        fpath = BASE_DIR / fname
+        if not fpath.is_file():
+            continue
+        try:
+            for raw_line in fpath.read_text(encoding="utf-8").splitlines():
+                line = raw_line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                k, v = line.split("=", 1)
+                key = k.strip()
+                val = v.strip().strip('"').strip("'")
+                if key:
+                    os.environ.setdefault(key, val)
+        except OSError:
+            pass
+
+
+_load_local_env_files()
 
 IS_PROD = (
     os.environ.get("VERCEL") == "1"
@@ -157,6 +188,11 @@ async def health_check(request: Request) -> JSONResponse:
                 "weather_cache_sec": 30,
                 "stream_window_sec": 20,
             },
+            "autonomous": {
+                "tomtom_enabled": is_tomtom_configured(),
+                "vrain_enabled": bool(os.environ.get("VRAIN_API_KEY", "").strip()),
+                "radar": "rainviewer",
+            },
         }
     )
 
@@ -240,6 +276,8 @@ async def simulate_flood(request: Request) -> JSONResponse:
         horizon = sanitize_text(body.get("horizon", "+1h"), 8)
         model_key = sanitize_text(body.get("model_key", "hgbr"), 16)
         include_community = bool(body.get("include_community", False))
+        raw_auto = body.get("include_autonomous")
+        include_autonomous = bool(include_community and horizon == "now") if raw_auto is None else bool(raw_auto)
     except Exception:
         return JSONResponse({"error": "Tham số mô phỏng JSON không hợp lệ."}, status_code=400)
 
@@ -256,6 +294,26 @@ async def simulate_flood(request: Request) -> JSONResponse:
         model_key=model_key,
     )
 
+    autonomous_overrides: Dict[str, Dict] = {}
+    autonomous_meta = {"enabled": is_tomtom_configured(), "anomaly_count": 0, "probe_count": 0, "fetched_at": ""}
+    if include_autonomous:
+        traffic_snap = get_autonomous_traffic_snapshot(
+            rain_mm_h=rain_mm_h,
+            rain_past_3h_mm=rain_3h_cum,
+            tide_level_m=tide_level_m,
+            force_refresh=False,
+        )
+        fused_auto, autonomous_overrides = fuse_autonomous_traffic_into_roads(
+            prediction["road_depths"], traffic_snap
+        )
+        prediction["road_depths"] = fused_auto
+        autonomous_meta = {
+            "enabled": bool(traffic_snap.get("enabled")),
+            "anomaly_count": int(traffic_snap.get("anomaly_count", 0)),
+            "probe_count": int(traffic_snap.get("probe_count", 0)),
+            "fetched_at": traffic_snap.get("fetched_at", ""),
+        }
+
     community_overrides: Dict[str, Dict] = {}
     if include_community:
         live_rain, live_tide, _ = _get_live_hydro_context()
@@ -264,14 +322,22 @@ async def simulate_flood(request: Request) -> JSONResponse:
             prediction["road_depths"], inc_data.get("master_incidents", [])
         )
         prediction["road_depths"] = fused_depths
+
+    if include_autonomous or include_community:
         for r_obj in prediction["roads"]:
             rid = r_obj["id"]
             if rid in community_overrides:
-                r_obj["depth_cm"] = fused_depths[rid]
-                sev_code, sev_label = _flood_severity_label(fused_depths[rid])
+                r_obj["depth_cm"] = prediction["road_depths"][rid]
+                sev_code, sev_label = _flood_severity_label(r_obj["depth_cm"])
                 r_obj["severity"] = sev_code
                 r_obj["severity_label"] = sev_label
                 r_obj["source"] = "community_1022"
+            elif rid in autonomous_overrides:
+                r_obj["depth_cm"] = prediction["road_depths"][rid]
+                sev_code, sev_label = _flood_severity_label(r_obj["depth_cm"])
+                r_obj["severity"] = sev_code
+                r_obj["severity_label"] = sev_label
+                r_obj["source"] = "autonomous_traffic"
             else:
                 r_obj["source"] = "ai_model"
         dangerous_roads = sorted([r for r in prediction["roads"] if r["depth_cm"] >= 18.0], key=lambda x: -x["depth_cm"])
@@ -303,9 +369,12 @@ async def simulate_flood(request: Request) -> JSONResponse:
                 "horizon": horizon,
                 "model_key": model_key,
                 "include_community": include_community,
+                "include_autonomous": include_autonomous,
             },
             "prediction": prediction,
             "community_fused_count": len(community_overrides),
+            "autonomous_fused_count": len(autonomous_overrides),
+            "autonomous_traffic": autonomous_meta,
             "hydrograph_24h": hydrograph,
         }
     )
@@ -342,6 +411,8 @@ async def compute_route(request: Request) -> JSONResponse:
             include_community = horizon == "now"
         else:
             include_community = bool(include_community)
+        raw_auto = body.get("include_autonomous")
+        include_autonomous = bool(include_community and horizon == "now") if raw_auto is None else bool(raw_auto)
         include_departure = bool(body.get("include_departure", horizon == "now"))
         start_label = sanitize_text(body.get("start_label", ""), 90) or None
         end_label = sanitize_text(body.get("end_label", ""), 90) or None
@@ -368,6 +439,16 @@ async def compute_route(request: Request) -> JSONResponse:
     live_rain, live_tide, hub = _get_live_hydro_context()
     road_depths = dict(prediction["road_depths"])
     hex_depths = [float(c["depth_cm"]) for c in prediction.get("hex_cells", [])]
+    autonomous_overrides: Dict[str, Dict] = {}
+    if include_autonomous:
+        traffic_snap = get_autonomous_traffic_snapshot(
+            rain_mm_h=rain_mm_h,
+            rain_past_3h_mm=rain_3h_cum,
+            tide_level_m=tide_level_m,
+            force_refresh=False,
+        )
+        road_depths, autonomous_overrides = fuse_autonomous_traffic_into_roads(road_depths, traffic_snap)
+
     master_incidents: List[Dict] = []
     community_overrides: Dict[str, Dict] = {}
     if include_community:
@@ -393,6 +474,8 @@ async def compute_route(request: Request) -> JSONResponse:
         )
     except ValueError:
         return JSONResponse({"error": "Điểm đi, điểm đến hoặc loại phương tiện không tồn tại trong mạng lưới Cần Thơ."}, status_code=400)
+
+    route_result["autonomous_fused_roads"] = list(autonomous_overrides.values())
 
     if include_departure:
         route_result["departure_advisor"] = compute_departure_windows(
@@ -621,6 +704,26 @@ async def geocode_cantho(request: Request) -> JSONResponse:
     return JSONResponse({"results": results})
 
 
+async def get_radar_meta(request: Request) -> JSONResponse:
+    """Return latest RainViewer radar frame URL template & frames for Leaflet overlay."""
+    wants_refresh = request.query_params.get("refresh", "false").lower() in ("1", "true", "yes")
+    return JSONResponse(get_rainviewer_radar_meta(force_refresh=wants_refresh))
+
+
+async def get_autonomous_traffic(request: Request) -> JSONResponse:
+    """Return live TomTom Traffic Flow speed probes paired with flood anomaly inference."""
+    rain, tide, hub = _get_live_hydro_context()
+    rain_3h = float(hub.get("current", {}).get("rain_past_3h_mm", 0.0))
+    return JSONResponse(
+        get_autonomous_traffic_snapshot(
+            rain_mm_h=rain,
+            rain_past_3h_mm=rain_3h,
+            tide_level_m=tide,
+            force_refresh=False,
+        )
+    )
+
+
 def _build_realtime_pulse(district_id: str) -> Dict:
     rain, tide, hub = _get_live_hydro_context()
     if district_id and district_id != "ninh_kieu":
@@ -738,6 +841,8 @@ routes = [
     Route("/api/incidents/comment", endpoint=comment_incident, methods=["POST"]),
     Route("/api/cameras", endpoint=get_cameras, methods=["GET"]),
     Route("/api/geocode", endpoint=geocode_cantho, methods=["GET"]),
+    Route("/api/radar", endpoint=get_radar_meta, methods=["GET"]),
+    Route("/api/autonomous/traffic", endpoint=get_autonomous_traffic, methods=["GET"]),
     Route("/api/realtime/state", endpoint=get_realtime_state, methods=["GET"]),
     Route("/api/realtime/stream", endpoint=stream_realtime, methods=["GET"]),
 ]

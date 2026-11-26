@@ -17,7 +17,7 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 STATIC_DIR = ROOT_DIR / "static"
 PUBLIC_DIR = ROOT_DIR / "public"
 ASSETS_DIR = PUBLIC_DIR / "assets"
-CACHE_TAG = "20261126v11"
+CACHE_TAG = "20261126v12"
 
 
 def _run_esbuild(src: Path, dst: Path, is_js: bool) -> bool:

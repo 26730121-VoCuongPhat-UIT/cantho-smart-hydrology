@@ -12,7 +12,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,300;0,6..72,400;0,6..72,500;1,6..72,400&display=swap" rel="stylesheet" />
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2316231e' stroke-width='1.8'%3E%3Cpath d='M3 15h9V9h9'/%3E%3Cpath d='M3 19c3-1.4 6-1.4 9 0s6 1.4 9 0'/%3E%3Ccircle cx='16' cy='6' r='2.2' stroke='%23b85d3b'/%3E%3C/svg%3E" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
-  <link rel="stylesheet" href="/assets/styles.min.css?v=20261126v11" />
+  <link rel="stylesheet" href="/assets/styles.min.css?v=20261126v12" />
 </head>
 <body data-active-mode="weather" data-mood="vellum">
   <div class="paper-grain-overlay" aria-hidden="true"></div>
@@ -295,6 +295,14 @@
         <label class="popover-check">
           <input type="checkbox" id="chk-layer-incidents" checked />
           <span>Điểm dân báo ngập</span>
+        </label>
+        <label class="popover-check">
+          <input type="checkbox" id="chk-layer-radar" checked />
+          <span>Radar mây mưa (Trực tiếp)</span>
+        </label>
+        <label class="popover-check">
+          <input type="checkbox" id="chk-layer-traffic" checked />
+          <span>Tốc độ xe thực tế (TomTom)</span>
         </label>
         <div class="popover-divider"></div>
         <label class="popover-check">
@@ -725,6 +733,6 @@
   <div class="toast-container" id="toast-container" aria-live="polite"></div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
-  <script src="/assets/app.min.js?v=20261126v11"></script>
+  <script src="/assets/app.min.js?v=20261126v12"></script>
 </body>
 </html>

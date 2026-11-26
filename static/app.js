@@ -47,6 +47,8 @@
       cameras: null,
       stations: null,
       incidents: null,
+      radar: null,
+      traffic: null,
       hex: null,
       route: null,
       landmarks: null,
@@ -1009,7 +1011,7 @@
 
     const tideM = Number(astro.current_tide_m ?? rec.tide_level_m ?? 1.45);
     const rainMm = Number(cur.precip_mm ?? rec.rain_mm_h ?? 0);
-    const rain3h = Number(rec.rain_3h_cum ?? roundOne(rainMm * 2.0));
+    const rain3h = Number(cur.rain_past_3h_mm ?? rec.rain_3h_cum ?? roundOne(rainMm * 2.0));
     const delta = Number(astro.current_tide_delta_m_h ?? 0);
 
     try {
@@ -1025,6 +1027,7 @@
           horizon: "now",
           model_key: "hgbr",
           include_community: !state.isSimulationOverride,
+          include_autonomous: !state.isSimulationOverride,
         }),
       });
       if (!res.ok) return;
@@ -1088,6 +1091,10 @@
     const astro = weatherPayload.astronomy_and_tide || {};
     const tideM = Number(astro.current_tide_m ?? simJson.inputs?.tide_level_m ?? 1.4);
     const rainMm = Number(cur.precip_mm ?? simJson.inputs?.rain_mm_h ?? 0);
+    const rainPast3h = Number(cur.rain_past_3h_mm ?? 0);
+    const rainPastNote = rainPast3h >= 1.0 ? ` · Mưa 3h qua ${rainPast3h.toFixed(1)} mm` : "";
+    const autoFusedCount = Number(simJson.autonomous_fused_count ?? 0);
+    const autoNote = autoFusedCount > 0 ? ` · ${autoFusedCount} trục chậm (TomTom)` : "";
 
     const severeRoads = roads.filter((r) => Number(r.depth_cm) >= 18.0).sort((a, b) => b.depth_cm - a.depth_cm);
     const warnRoads = roads.filter((r) => Number(r.depth_cm) >= 8.0 && Number(r.depth_cm) < 18.0).sort((a, b) => b.depth_cm - a.depth_cm);
@@ -1108,7 +1115,7 @@
       if (statusTagEl) statusTagEl.textContent = "MẶT ĐƯỜNG THÔNG THOÁNG";
       $("#live-flood-icon").innerHTML = UI_ICONS.shieldCheck;
       $("#live-flood-headline").textContent = "Hiện tại Cần Thơ khô ráo, không ngập";
-      $("#live-flood-sub").textContent = `Mưa ${rainMm.toFixed(1)} mm/h · Triều Sông Hậu ${tideM.toFixed(2)}m`;
+      $("#live-flood-sub").textContent = `Mưa ${rainMm.toFixed(1)} mm/h${rainPastNote} · Triều Sông Hậu ${tideM.toFixed(2)}m`;
       if ($("#portal-road-summary")) $("#portal-road-summary").textContent = "42/42 trục đường đều thông thoáng.";
       if ($("#portal-tide-chip")) $("#portal-tide-chip").textContent = "Sẵn sàng tra cứu lộ trình né ngập";
       hotspotsEl.classList.add("hidden");
@@ -1121,7 +1128,7 @@
       if (statusTagEl) statusTagEl.textContent = "CẢNH BÁO NGẬP CỤC BỘ";
       $("#live-flood-icon").innerHTML = UI_ICONS.alertTriangle;
       $("#live-flood-headline").textContent = `Ngập nhẹ cục bộ ${warnRoads.length} đoạn trũng`;
-      $("#live-flood-sub").textContent = `Độ sâu ~${Math.round(topD)} cm · Triều ${tideM.toFixed(2)}m (${astro.current_alarm_status || "Triều lên"})`;
+      $("#live-flood-sub").textContent = `Độ sâu ~${Math.round(topD)} cm · Triều ${tideM.toFixed(2)}m (${astro.current_alarm_status || "Triều lên"})${rainPastNote}${autoNote}`;
       if ($("#portal-road-summary")) $("#portal-road-summary").textContent = `${warnRoads.length} điểm ngập nhẹ dưới 18 cm.`;
       if ($("#portal-tide-chip")) $("#portal-tide-chip").textContent = "Nhấn để xem chi tiết trên bản đồ";
       renderHotspotChips(hotspotsEl, allFlooded.slice(0, 3));
@@ -1133,7 +1140,7 @@
       if (statusTagEl) statusTagEl.textContent = "CẢNH BÁO NGẬP SÂU";
       $("#live-flood-icon").innerHTML = UI_ICONS.wavesDanger;
       $("#live-flood-headline").textContent = `Đang ngập ${severeRoads.length} đoạn đường (${allFlooded.length} điểm cảnh báo)`;
-      $("#live-flood-sub").textContent = `Sâu nhất ${Math.round(topD)} cm · Triều ${tideM.toFixed(2)}m (${astro.current_alarm_status || "Ngập cao"})`;
+      $("#live-flood-sub").textContent = `Sâu nhất ${Math.round(topD)} cm · Triều ${tideM.toFixed(2)}m (${astro.current_alarm_status || "Ngập cao"})${rainPastNote}${autoNote}`;
       if ($("#portal-road-summary")) $("#portal-road-summary").textContent = `${severeRoads.length} đoạn ngập ≥ 18 cm nên tránh.`;
       if ($("#portal-tide-chip")) $("#portal-tide-chip").textContent = "Tìm đường né ngập trực tiếp trên bản đồ";
       renderHotspotChips(hotspotsEl, allFlooded.slice(0, 3));
@@ -1327,7 +1334,7 @@
     if ($("#colophon-data-source")) {
       const hhmm = formatVnTimeFromIso(data.fetched_at);
       const srcMode = isLive ? "Trực tuyến" : "Bộ nhớ đệm";
-      $("#colophon-data-source").textContent = `Nguồn: Open-Meteo · GloFAS · Cộng đồng (${srcMode} ${hhmm})`;
+      $("#colophon-data-source").textContent = `Nguồn: Open-Meteo · GloFAS · TomTom Traffic · Radar (${srcMode} ${hhmm})`;
     }
 
     renderWeatherStationsOnMap(data.districts || []);
@@ -1373,7 +1380,9 @@
     state.basemaps.street.addTo(map);
 
     state.layers.hex = L.layerGroup();
+    state.layers.radar = L.layerGroup().addTo(map);
     state.layers.roads = L.layerGroup().addTo(map);
+    state.layers.traffic = L.layerGroup().addTo(map);
     state.layers.route = L.layerGroup().addTo(map);
     state.layers.landmarks = L.layerGroup().addTo(map);
     state.layers.stations = L.layerGroup().addTo(map);
@@ -1538,7 +1547,11 @@
       })
         .bindPopup(
           `<strong>${escapeHtml(road.name)}</strong><br/>Mực nước dự báo: <strong>${depth.toFixed(0)} cm</strong>` +
-          (road.source === "community_1022" ? `<br/><span class="post-tag verified">Nguồn: Cộng đồng</span>` : "")
+          (road.source === "community_1022"
+            ? `<br/><span class="post-tag verified">Nguồn: Cộng đồng</span>`
+            : (road.source === "autonomous_traffic"
+                ? `<br/><span class="post-tag">Nguồn: Tự động (TomTom + Thủy văn)</span>`
+                : ""))
         )
         .addTo(state.layers.roads);
     });
@@ -1595,6 +1608,67 @@
           .addTo(state.layers.hex);
       }
     });
+  }
+
+  /* --------------------------------------------------------------------------
+     Autonomous Telemetry Layers: RainViewer Live Radar & TomTom Traffic Probes
+     -------------------------------------------------------------------------- */
+  async function loadRainRadarLayer() {
+    if (!state.map || !state.layers.radar) return;
+    try {
+      const res = await fetch("/api/radar");
+      if (!res.ok) return;
+      const data = await res.json();
+      state.layers.radar.clearLayers();
+      if (!data.available || !data.tile_url_template) return;
+
+      L.tileLayer(data.tile_url_template, {
+        opacity: 0.50,
+        maxNativeZoom: Number(data.max_native_zoom || 7),
+        maxZoom: 19,
+        zIndex: 240,
+      }).addTo(state.layers.radar);
+    } catch (_) {
+      /* non-fatal radar fallback */
+    }
+  }
+
+  async function loadAutonomousTrafficLayer() {
+    if (!state.map || !state.layers.traffic) return;
+    try {
+      const res = await fetch("/api/autonomous/traffic");
+      if (!res.ok) return;
+      const data = await res.json();
+      state.layers.traffic.clearLayers();
+      if (!data.enabled || !Array.isArray(data.probes)) return;
+
+      data.probes.forEach((probe) => {
+        const cls =
+          probe.status === "flood_suspected"
+            ? (Number(probe.inferred_depth_cm || 0) >= 18 ? "danger" : "warn")
+            : (probe.status === "traffic_jam" ? "jam" : "clear");
+        const icon = L.divIcon({
+          className: "traffic-pin-wrapper",
+          html: `<div class="traffic-map-pin ${cls}">${Math.round(Number(probe.current_speed_kmh || 0))} km/h</div>`,
+          iconSize: [0, 0],
+          iconAnchor: [26, 10],
+        });
+        const confPct = Math.round(Number(probe.confidence || 0) * 100);
+        const depthNote =
+          probe.status === "flood_suspected"
+            ? `<br/>Suy luận tự động: <strong>~${Math.round(probe.inferred_depth_cm || 0)} cm</strong>`
+            : "";
+        L.marker([probe.lat, probe.lon], { icon, zIndexOffset: 280 })
+          .bindPopup(
+            `<strong>${escapeHtml(probe.name)}</strong><br/>` +
+            `Tốc độ thực tế: <strong>${probe.current_speed_kmh} km/h</strong> (Thông thoáng: ${probe.free_flow_kmh} km/h)<br/>` +
+            `Trạng thái: ${escapeHtml(probe.label)} · Độ tin cậy ${confPct}%${depthNote}`
+          )
+          .addTo(state.layers.traffic);
+      });
+    } catch (_) {
+      /* non-fatal traffic probe fallback */
+    }
   }
 
   /* --------------------------------------------------------------------------
@@ -1906,6 +1980,7 @@
       horizon: String(activeInputs.horizon || "now"),
       model_key: String(activeInputs.model_key || "hgbr"),
       include_community: !state.isSimulationOverride,
+      include_autonomous: !state.isSimulationOverride,
       include_departure: !state.isSimulationOverride,
     };
     if (rs.lat != null && rs.lon != null) {
@@ -3068,6 +3143,8 @@
           state.map?.invalidateSize();
           runFloodRoute();
           loadCameras();
+          loadAutonomousTrafficLayer();
+          loadRainRadarLayer();
         }
         if (mode === "eval") {
           loadIncidents();
@@ -3101,7 +3178,7 @@
       const lbl = $("#mood-toggle-label");
       const ico = $("#mood-toggle-ico");
       const isNocturne = state.mood === "nocturne";
-      if (lbl) lbl.textContent = isNocturne ? "Giấy ấm" : "Bản đêm";
+      if (lbl) lbl.textContent = isNocturne ? "Giấy ấm" : "Ban đêm";
       if (ico) {
         ico.innerHTML = isNocturne
           ? `<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/>`
@@ -3241,6 +3318,8 @@
     bindLayerToggle("#chk-layer-cameras", "cameras");
     bindLayerToggle("#chk-layer-stations", "stations");
     bindLayerToggle("#chk-layer-incidents", "incidents");
+    bindLayerToggle("#chk-layer-radar", "radar");
+    bindLayerToggle("#chk-layer-traffic", "traffic");
     bindLayerToggle("#chk-layer-hex", "hex");
 
     // Ensure cameras layer respects default checked state
@@ -3833,7 +3912,7 @@
       ]);
       if (initRes.ok) renderInitData(await initRes.json());
       applyUrlRouteParams();
-      await Promise.all([loadIncidents(), loadCameras()]);
+      await Promise.all([loadIncidents(), loadCameras(), loadRainRadarLayer(), loadAutonomousTrafficLayer()]);
     } catch (err) {
       showToast(`Lỗi khởi tạo: ${err.message}`);
     }
@@ -3842,6 +3921,12 @@
     setInterval(() => {
       if (!document.hidden) loadLiveWeather(state.selectedDistrictId, false);
     }, 45_000);
+    setInterval(() => {
+      if (!document.hidden) {
+        loadRainRadarLayer();
+        loadAutonomousTrafficLayer();
+      }
+    }, 180_000);
   }
 
   document.addEventListener("DOMContentLoaded", bootstrap);

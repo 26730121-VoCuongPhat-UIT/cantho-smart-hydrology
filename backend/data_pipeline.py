@@ -940,6 +940,7 @@ def generate_smart_contextual_alerts(
     hourly_24h: List[Dict[str, Any]],
     tide_schedule: Dict[str, Any],
     districts_live: List[Dict[str, Any]],
+    rain_past_3h_mm: float = 0.0,
 ) -> Dict[str, Any]:
     """Analyze the next 3-6 hours of meteorology, UV, AQI, and Hau River tide to issue Smart Contextual Alerts."""
     alerts: List[Dict[str, Any]] = []
@@ -1075,11 +1076,13 @@ def generate_smart_contextual_alerts(
 
     # Determine whether Auto-Flood Mode should recommend activation
     current_rain = float(current.get("precip_mm", 0.0))
+    past_3h = max(float(rain_past_3h_mm), float(current.get("rain_past_3h_mm", 0.0)))
     rain_3h_forecast = sum(float(h.get("precip_mm", 0.0)) for h in next_6h[:3])
     current_tide = float(tide_schedule.get("current_tide_m", 1.5))
 
     should_activate_flood = (
         current_rain >= 15.0
+        or past_3h >= 25.0
         or rain_3h_forecast >= 20.0
         or current_tide >= 1.80
         or max_tide >= 1.95
@@ -1088,6 +1091,10 @@ def generate_smart_contextual_alerts(
     if current_rain >= 15.0 or current_tide >= 1.85:
         trigger_reason = (
             f"Phát hiện mực nước Sông Hậu cao ({current_tide:.2f}m) / mưa lớn ({current_rain:.1f} mm/h) vượt ngưỡng Báo động I."
+        )
+    elif past_3h >= 25.0:
+        trigger_reason = (
+            f"Lượng mưa tích lũy 3 giờ qua đạt {past_3h:.1f} mm — các đoạn trũng nội ô có thể còn ngập rút chậm."
         )
     elif max_tide >= 1.95:
         trigger_reason = (
@@ -1100,12 +1107,12 @@ def generate_smart_contextual_alerts(
         "alerts": alerts,
         "auto_flood_mode": {
             "should_activate": should_activate_flood,
-            "is_currently_critical": bool(current_rain >= 15.0 or current_tide >= 1.80),
+            "is_currently_critical": bool(current_rain >= 15.0 or current_tide >= 1.80 or past_3h >= 25.0),
             "trigger_reason": trigger_reason,
             "recommended_inputs": {
                 "tide_level_m": round(max(current_tide, max_tide if should_activate_flood else current_tide), 2),
                 "rain_mm_h": round(max(current_rain, float(rain_hours[0]["precip_mm"]) if rain_hours else 0.0), 1),
-                "rain_3h_cum": round(max(rain_3h_forecast, current_rain * 1.8), 1),
+                "rain_3h_cum": round(max(past_3h, rain_3h_forecast, current_rain * 1.8), 1),
             },
         },
     }
@@ -1256,10 +1263,10 @@ def _fetch_raw_openmeteo_bundle(force_refresh: bool = False, timeout_sec: float 
         f"https://api.open-meteo.com/v1/forecast"
         f"?latitude={CANTHO_LAT}&longitude={CANTHO_LON}"
         f"&current=temperature_2m,relative_humidity_2m,apparent_temperature,is_day,precipitation,weather_code,cloud_cover,surface_pressure,wind_speed_10m,wind_direction_10m,wind_gusts_10m"
-        f"&minutely_15=precipitation&forecast_minutely_15=4"
+        f"&minutely_15=precipitation&past_minutely_15=12&forecast_minutely_15=4"
         f"&hourly=temperature_2m,apparent_temperature,relative_humidity_2m,precipitation_probability,precipitation,weather_code,surface_pressure,visibility,wind_speed_10m,wind_direction_10m,uv_index"
         f"&daily=weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset,uv_index_max,precipitation_sum,precipitation_probability_max,wind_speed_10m_max"
-        f"&forecast_days=7&timezone=Asia%2FHo_Chi_Minh"
+        f"&past_hours=6&forecast_days=7&timezone=Asia%2FHo_Chi_Minh"
     )
     aqi_url = (
         f"https://air-quality-api.open-meteo.com/v1/air-quality"
@@ -1272,6 +1279,7 @@ def _fetch_raw_openmeteo_bundle(force_refresh: bool = False, timeout_sec: float 
         f"https://api.open-meteo.com/v1/forecast"
         f"?latitude={lats_csv}&longitude={lons_csv}"
         f"&current=temperature_2m,relative_humidity_2m,apparent_temperature,is_day,precipitation,weather_code,cloud_cover,surface_pressure,wind_speed_10m,wind_direction_10m"
+        f"&hourly=precipitation&past_hours=3&forecast_hours=2"
         f"&timezone=Asia%2FHo_Chi_Minh"
     )
 
@@ -1322,6 +1330,50 @@ def _fetch_raw_openmeteo_bundle(force_refresh: bool = False, timeout_sec: float 
         _LIVE_HUB_CACHE["fetched_epoch"] = now_epoch
         _LIVE_HUB_CACHE["raw_bundle"] = fallback
         return fallback
+
+
+_VRAIN_CACHE: Dict[str, Any] = {"fetched_epoch": 0.0, "data": None}
+_VRAIN_KEYWORDS = (
+    "cần thơ", "can tho", "ninh kiều", "ninh kieu", "bình thủy", "binh thuy",
+    "cái răng", "cai rang", "ô môn", "o mon", "thốt nốt", "thot not",
+    "phong điền", "phong dien", "cờ đỏ", "co do", "vĩnh thạnh", "vinh thanh",
+    "thới lai", "thoi lai",
+)
+
+
+def _fetch_vrain_cantho_rain(timeout_sec: float = 3.0) -> Dict[str, Any] | None:
+    """Optionally read live Can Tho ground rain gauges from VRain Open API when VRAIN_API_KEY is set."""
+    api_key = os.environ.get("VRAIN_API_KEY", "").strip()
+    if not api_key:
+        return None
+
+    now_epoch = time.time()
+    if _VRAIN_CACHE["data"] is not None and (now_epoch - float(_VRAIN_CACHE["fetched_epoch"])) < 180.0:
+        return _VRAIN_CACHE["data"]
+
+    try:
+        resp = requests.get(
+            "https://api.vrain.vn/v1/stations/stats",
+            headers={"x-api-key": api_key},
+            timeout=timeout_sec,
+        )
+        resp.raise_for_status()
+        rows = resp.json().get("data") or []
+        matched = []
+        for row in rows:
+            hay = f"{row.get('province_name', '')} {row.get('station_name', '')}".lower()
+            if any(kw in hay for kw in _VRAIN_KEYWORDS):
+                val = float(row.get("rain_fall", 0.0) or 0.0)
+                if math.isfinite(val) and 0.0 <= val <= 300.0:
+                    matched.append(val)
+        if not matched:
+            return None
+        payload = {"max_rain_mm": round(max(matched), 1), "station_count": len(matched), "source": "vrain"}
+        _VRAIN_CACHE["data"] = payload
+        _VRAIN_CACHE["fetched_epoch"] = now_epoch
+        return payload
+    except Exception:
+        return None
 
 
 def fetch_cantho_realtime_hub(
@@ -1383,6 +1435,56 @@ def fetch_cantho_realtime_hub(
             start_idx = idx
             break
 
+    # Split minutely_15 timestamps cleanly into past 3h vs upcoming 30m nowcast
+    m15_times = minutely_15.get("time") or []
+    past_15_vals: List[float] = []
+    fcst_15_vals: List[float] = []
+    now_naive = now_vn.replace(tzinfo=None)
+    for idx, raw_v in enumerate(m15_vals):
+        try:
+            v = float(raw_v)
+            if not (math.isfinite(v) and 0.0 <= v <= 75.0):
+                continue
+        except (TypeError, ValueError):
+            continue
+        ts_str = m15_times[idx] if idx < len(m15_times) else ""
+        if ts_str:
+            try:
+                dt_m15 = datetime.fromisoformat(ts_str).replace(tzinfo=None)
+                if dt_m15 <= now_naive:
+                    past_15_vals.append(v)
+                else:
+                    fcst_15_vals.append(v)
+                continue
+            except ValueError:
+                pass
+        if len(m15_vals) >= 14:
+            if idx < len(m15_vals) - 4:
+                past_15_vals.append(v)
+            else:
+                fcst_15_vals.append(v)
+        else:
+            fcst_15_vals.append(v)
+
+    rain_15m_nowcast = float(curr_fc.get("precipitation", 0.0))
+    for v in fcst_15_vals[:2]:
+        rain_15m_nowcast = max(rain_15m_nowcast, round(v * 4.0, 1))
+    base_precip = round(max(float(curr_fc.get("precipitation", 0.0)), rain_15m_nowcast), 1)
+
+    rain_past_3h_m15 = sum(past_15_vals[-12:])
+    h_precips_all = hourly.get("precipitation", [])
+    rain_past_3h_hourly = sum(
+        float(h_precips_all[i])
+        for i in range(max(0, start_idx - 3), min(start_idx, len(h_precips_all)))
+        if h_precips_all[i] is not None
+    )
+    rain_past_3h_mm = round(max(rain_past_3h_m15, rain_past_3h_hourly), 1)
+
+    vrain_data = _fetch_vrain_cantho_rain()
+    if vrain_data is not None:
+        base_precip = round(max(base_precip, float(vrain_data["max_rain_mm"])), 1)
+        rain_past_3h_mm = round(max(rain_past_3h_mm, float(vrain_data["max_rain_mm"])), 1)
+
     # If current UV was not in curr_aqi or is 0 during daytime, check hourly UV at start_idx
     h_uvs = hourly.get("uv_index", [])
     if base_uv == 0.0 and start_idx < len(h_uvs) and h_uvs[start_idx] is not None:
@@ -1396,11 +1498,33 @@ def fetch_cantho_realtime_hub(
     batch_list = bundle.get("districts_current")
     districts_live: List[Dict[str, Any]] = []
     for idx, d_prof in enumerate(CANTHO_DISTRICTS):
-        raw_d = (
-            batch_list[idx].get("current", {})
+        dist_obj = (
+            batch_list[idx]
             if isinstance(batch_list, list) and idx < len(batch_list) and isinstance(batch_list[idx], dict)
             else {}
         )
+        raw_d = dist_obj.get("current", {})
+        dist_h = dist_obj.get("hourly", {})
+        dist_h_times = dist_h.get("time", [])
+        dist_h_precips = dist_h.get("precipitation", [])
+        d_rain_past_3h = rain_past_3h_mm
+        if dist_h_precips:
+            d_end = len(dist_h_precips)
+            for h_i, ts in enumerate(dist_h_times):
+                if ts.startswith(current_hour_prefix):
+                    d_end = h_i
+                    break
+            d_rain_past_3h = round(
+                max(
+                    rain_past_3h_m15 if d_prof.id == "ninh_kieu" else 0.0,
+                    sum(
+                        float(dist_h_precips[j])
+                        for j in range(max(0, d_end - 3), min(d_end, len(dist_h_precips)))
+                        if dist_h_precips[j] is not None
+                    ),
+                ),
+                1,
+            )
         # Blend real batch coordinate telemetry with local urban/eco micro-climate characteristics
         d_temp = round(float(raw_d.get("temperature_2m", base_temp)) + d_prof.temp_offset_c * 0.5, 1)
         d_feels = round(float(raw_d.get("apparent_temperature", base_feels)) + d_prof.temp_offset_c * 0.7, 1)
@@ -1428,6 +1552,7 @@ def fetch_cantho_realtime_hub(
                 "feels_like_c": d_feels,
                 "humidity_pct": d_rh,
                 "precip_mm": d_precip,
+                "rain_past_3h_mm": d_rain_past_3h,
                 "weather_code": d_wcode,
                 "weather_label": w_meta["label"],
                 "weather_category": w_meta["category"],
@@ -1628,11 +1753,13 @@ def fetch_cantho_realtime_hub(
     aqi_detail["nitrogen_dioxide_ugm3"] = round(base_no2, 1)
     aqi_detail["ozone_ugm3"] = round(base_o3, 1)
 
+    selected_rain_past_3h = float(selected_district_data.get("rain_past_3h_mm", rain_past_3h_mm))
     smart_alerts_bundle = generate_smart_contextual_alerts(
         current=selected_district_data,
         hourly_24h=hourly_24h,
         tide_schedule=astronomy_tide,
         districts_live=districts_live,
+        rain_past_3h_mm=selected_rain_past_3h,
     )
 
     return {
@@ -1644,6 +1771,8 @@ def fetch_cantho_realtime_hub(
         "current": {
             **selected_district_data,
             "rain_15m_nowcast_mm_h": rain_15m_nowcast,
+            "rain_past_3h_mm": selected_rain_past_3h,
+            "vrain_active": bool(vrain_data),
             "temp_max_today_c": daily_7d[0]["temp_max_c"] if daily_7d else round(selected_district_data["temp_c"] + 2.0, 1),
             "temp_min_today_c": daily_7d[0]["temp_min_c"] if daily_7d else round(selected_district_data["temp_c"] - 5.0, 1),
             "is_day": base_is_day,

@@ -1104,6 +1104,73 @@ class TestCanThoFloodGuardMVP(unittest.TestCase):
         self.assertIn("event: flood_update", body_text)
         self.assertIn("test-sig-2", body_text)
 
+    def test_autonomous_flood_classifier_and_endpoints(self) -> None:
+        """Verify TomTom flood anomaly classifier, road fusion, radar/traffic endpoints, and zero secret leak."""
+        import json
+        import os
+        from backend.autonomous_engine import (
+            classify_traffic_flood_anomaly,
+            fuse_autonomous_traffic_into_roads,
+        )
+        from backend.security import rate_limiter
+
+        # 1. Wet weather slow traffic triggers flood_suspected; dry jam does not inject water depth
+        wet_deep = classify_traffic_flood_anomaly(11.0, 32.0, 0.90, False, 18.0, 22.0, 1.60)
+        self.assertEqual(wet_deep["status"], "flood_suspected")
+        self.assertGreaterEqual(wet_deep["inferred_depth_cm"], 18.0)
+
+        dry_jam = classify_traffic_flood_anomaly(9.0, 32.0, 0.92, False, 0.0, 0.0, 1.35)
+        self.assertEqual(dry_jam["status"], "traffic_jam")
+        self.assertEqual(dry_jam["inferred_depth_cm"], 0.0)
+
+        clear_flow = classify_traffic_flood_anomaly(28.0, 32.0, 0.92, False, 10.0, 15.0, 1.75)
+        self.assertEqual(clear_flow["status"], "clear")
+        self.assertEqual(clear_flow["inferred_depth_cm"], 0.0)
+
+        # 2. Road fusion elevates suspect corridor without leaking credentials
+        fused, overrides = fuse_autonomous_traffic_into_roads(
+            {"road_01": 6.0, "road_00": 4.0},
+            {
+                "probes": [
+                    {
+                        "road_id": "road_01",
+                        "status": "flood_suspected",
+                        "inferred_depth_cm": 24.0,
+                        "label": "Xe di chuyển rất chậm khi mưa/triều cao",
+                        "current_speed_kmh": 11.0,
+                        "free_flow_kmh": 32.0,
+                        "slowdown_pct": 66,
+                        "confidence": 0.9,
+                    }
+                ]
+            },
+        )
+        self.assertEqual(fused["road_01"], 24.0)
+        self.assertIn("road_01", overrides)
+
+        # 3. API endpoints & past-3h weather field (without echoing TOMTOM_API_KEY)
+        rate_limiter.reset()
+        st_wx, _, body_wx = self._call_asgi_full("GET", "/api/weather/live", "district=ninh_kieu")
+        self.assertEqual(st_wx, 200)
+        wx = json.loads(body_wx)
+        self.assertIn("rain_past_3h_mm", wx["current"])
+
+        st_rad, _, body_rad = self._call_asgi_full("GET", "/api/radar")
+        self.assertEqual(st_rad, 200)
+        rad = json.loads(body_rad)
+        self.assertIn("available", rad)
+        self.assertEqual(rad.get("max_native_zoom"), 7)
+
+        st_trf, _, body_trf = self._call_asgi_full("GET", "/api/autonomous/traffic")
+        self.assertEqual(st_trf, 200)
+        secret_val = os.environ.get("TOMTOM_API_KEY", "").strip()
+        if secret_val:
+            self.assertNotIn(secret_val, body_trf)
+        trf = json.loads(body_trf)
+        self.assertIn("probes", trf)
+        self.assertIn("anomaly_count", trf)
+        rate_limiter.reset()
+
 
 if __name__ == "__main__":
     unittest.main()
